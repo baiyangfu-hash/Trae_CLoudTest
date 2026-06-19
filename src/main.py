@@ -19,6 +19,7 @@ from dialogs_data import get_all_dialogs, get_dialog
 from fsrs_engine import FSRSEngine, FSRSState
 from dictation_page import DictationPage
 from us_travel_dialogs import get_all_us_dialogs, get_us_dialog
+from roleplay_page import RolePlayPage
 
 class WordCard(QFrame):
     """单词卡片组件"""
@@ -946,7 +947,8 @@ class MainWindow(QMainWindow):
             ("🔍 词典查询", 1),
             ("📝 单词学习", 2),
             ("🎧 听写练习", 3),
-            ("📊 学习统计", 4),
+            ("🎭 角色扮演", 4),
+            ("📊 学习统计", 5),
         ]
 
         for text, index in nav_items:
@@ -1004,7 +1006,11 @@ class MainWindow(QMainWindow):
         self.dictation_page = DictationPage(self.dictionary, self.database)
         self.stack.addWidget(self.dictation_page)
 
-        # 页面5: 学习统计
+        # 页面5: 角色扮演
+        self.roleplay_page = RolePlayPage(self.dictionary, self.database)
+        self.stack.addWidget(self.roleplay_page)
+
+        # 页面6: 学习统计
         self.stats_page = StatsPage(self.database)
         self.stack.addWidget(self.stats_page)
 
