@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QListWidget, QTextEdit,
     QStackedWidget, QFrame, QScrollArea, QGridLayout, QMessageBox,
-    QSizePolicy, QProgressBar
+    QSizePolicy, QProgressBar, QFileDialog
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QIcon
@@ -20,6 +20,7 @@ from fsrs_engine import FSRSEngine, FSRSState
 from dictation_page import DictationPage
 from us_travel_dialogs import get_all_us_dialogs, get_us_dialog
 from roleplay_page import RolePlayPage
+from dialog_importer import DialogImporter, ImportError as DialogImportError
 
 class WordCard(QFrame):
     """单词卡片组件"""
@@ -313,6 +314,9 @@ class DialogPage(QWidget):
         super().__init__(parent)
         self.dictionary = dictionary
         self.current_dialog = None
+        self._importer = DialogImporter()
+        self._custom_dialogs = {}  # 存储导入的自定义对话
+        self._custom_counter = 0
         self._setup_ui()
         self._load_dialog_list()
 
@@ -354,6 +358,25 @@ class DialogPage(QWidget):
         """)
         self.dialog_list.itemClicked.connect(self._on_dialog_selected)
         left_layout.addWidget(self.dialog_list)
+
+        # 导入对话按钮
+        import_btn = QPushButton("导入对话")
+        import_btn.setStyleSheet("""
+            QPushButton {
+                padding: 10px 16px;
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #219a52;
+            }
+        """)
+        import_btn.clicked.connect(self._on_import_dialog)
+        left_layout.addWidget(import_btn)
 
         layout.addWidget(left_panel)
 
@@ -424,8 +447,8 @@ class DialogPage(QWidget):
 
     def _show_dialog(self, dialog_id):
         """显示对话内容"""
-        # 先从基础对话找，再从美国出差对话找
-        dialog = get_dialog(dialog_id) or get_us_dialog(dialog_id)
+        # 先从基础对话找，再从美国出差对话找，最后从自定义对话找
+        dialog = get_dialog(dialog_id) or get_us_dialog(dialog_id) or self._custom_dialogs.get(dialog_id)
         if not dialog:
             return
 
@@ -452,6 +475,47 @@ class DialogPage(QWidget):
             self.lookup_result.show()
         else:
             self.lookup_result.hide()
+
+    def _on_import_dialog(self):
+        """导入对话文件"""
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "选择对话文件",
+            "",
+            "对话文件 (*.json *.txt);;JSON 文件 (*.json);;文本文件 (*.txt);;所有文件 (*)"
+        )
+        if not filepath:
+            return
+
+        try:
+            dialog = self._importer.import_file(filepath)
+
+            # 生成唯一 ID
+            self._custom_counter += 1
+            dialog_id = f"custom_{self._custom_counter}"
+            self._custom_dialogs[dialog_id] = dialog
+
+            # 添加到列表
+            dialog_info = {
+                'id': dialog_id,
+                'title': dialog['title'],
+                'title_en': dialog['title_en'],
+                'category': dialog['category'],
+                'difficulty': dialog['difficulty'],
+                'line_count': len(dialog['lines']),
+            }
+            self._all_dialogs.append(dialog_info)
+            item_text = f"{dialog_info['title']}\n{dialog_info['title_en']} | {dialog_info['difficulty']}"
+            self.dialog_list.addItem(item_text)
+
+            # 自动选中新导入的对话
+            self.dialog_list.setCurrentRow(len(self._all_dialogs) - 1)
+            self._show_dialog(dialog_id)
+
+            QMessageBox.information(self, "导入成功",
+                                    f"成功导入对话: {dialog['title']}\n共 {len(dialog['lines'])} 行")
+        except DialogImportError as e:
+            QMessageBox.warning(self, "导入失败", f"导入对话失败:\n{str(e)}")
 
 class StudyPage(QWidget):
     """单词学习页面 - 间隔重复卡片"""

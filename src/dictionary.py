@@ -9,6 +9,7 @@ import requests
 
 ECDICT_URL = "https://github.com/skywind3000/ECDICT/raw/master/ecdict.db"
 DICT_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'ecdict.db')
+FULL_DICT_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'ecdict_full.db')
 
 class Dictionary:
     def __init__(self):
@@ -17,11 +18,11 @@ class Dictionary:
         self._connect()
 
     def _ensure_dict(self):
-        """确保词典数据库存在"""
-        if os.path.exists(DICT_PATH):
-            return
+        """确保词典数据库存在，优先使用完整版"""
         os.makedirs(os.path.dirname(DICT_PATH), exist_ok=True)
-        # 如果本地没有，创建一个简化版词典
+        # 完整版或简化版存在即可
+        if os.path.exists(FULL_DICT_PATH) or os.path.exists(DICT_PATH):
+            return
         self._create_simple_dict()
 
     def _create_simple_dict(self):
@@ -75,9 +76,10 @@ class Dictionary:
         print("已创建简化版词典（示例数据）")
 
     def _connect(self):
-        """连接词典数据库"""
-        if os.path.exists(DICT_PATH):
-            self.conn = sqlite3.connect(DICT_PATH)
+        """连接词典数据库，优先完整版"""
+        dict_path = FULL_DICT_PATH if os.path.exists(FULL_DICT_PATH) else DICT_PATH
+        if os.path.exists(dict_path):
+            self.conn = sqlite3.connect(dict_path)
             self.conn.row_factory = sqlite3.Row
 
     def lookup(self, word):

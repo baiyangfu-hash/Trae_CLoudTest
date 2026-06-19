@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Database (too large for git)
+data/ecdict_full.db
+data/app.db
+
+# Build
+build/
+dist/
+*.spec
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Trae
+.trae
+.git-credentials
