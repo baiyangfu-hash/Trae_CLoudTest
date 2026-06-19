@@ -18,6 +18,7 @@ from database import Database
 from dialogs_data import get_all_dialogs, get_dialog
 from fsrs_engine import FSRSEngine, FSRSState
 from dictation_page import DictationPage
+from us_travel_dialogs import get_all_us_dialogs, get_us_dialog
 
 class WordCard(QFrame):
     """单词卡片组件"""
@@ -398,23 +399,32 @@ class DialogPage(QWidget):
         layout.addWidget(right_panel)
 
     def _load_dialog_list(self):
-        """加载对话列表"""
-        dialogs = get_all_dialogs()
-        for dialog in dialogs:
+        """加载对话列表（基础 + 美国出差）"""
+        self._all_dialogs = []
+        
+        # 基础对话
+        for d in get_all_dialogs():
+            self._all_dialogs.append(d)
+        
+        # 美国出差对话
+        for d in get_all_us_dialogs():
+            self._all_dialogs.append(d)
+        
+        for dialog in self._all_dialogs:
             item_text = f"{dialog['title']}\n{dialog['title_en']} | {dialog['difficulty']}"
-            item = self.dialog_list.addItem(item_text)
+            self.dialog_list.addItem(item_text)
 
     def _on_dialog_selected(self, item):
         """选择对话"""
         index = self.dialog_list.row(item)
-        dialogs = get_all_dialogs()
-        if index < len(dialogs):
-            dialog_id = dialogs[index]['id']
+        if index < len(self._all_dialogs):
+            dialog_id = self._all_dialogs[index]['id']
             self._show_dialog(dialog_id)
 
     def _show_dialog(self, dialog_id):
         """显示对话内容"""
-        dialog = get_dialog(dialog_id)
+        # 先从基础对话找，再从美国出差对话找
+        dialog = get_dialog(dialog_id) or get_us_dialog(dialog_id)
         if not dialog:
             return
 
