@@ -17,6 +17,7 @@ from dictionary import Dictionary
 from database import Database
 from dialogs_data import get_all_dialogs, get_dialog
 from fsrs_engine import FSRSEngine, FSRSState
+from dictation_page import DictationPage
 
 class WordCard(QFrame):
     """单词卡片组件"""
@@ -934,7 +935,8 @@ class MainWindow(QMainWindow):
             ("📚 情景对话", 0),
             ("🔍 词典查询", 1),
             ("📝 单词学习", 2),
-            ("📊 学习统计", 3),
+            ("🎧 听写练习", 3),
+            ("📊 学习统计", 4),
         ]
 
         for text, index in nav_items:
@@ -988,7 +990,11 @@ class MainWindow(QMainWindow):
         self.study_page = StudyPage(self.dictionary, self.database)
         self.stack.addWidget(self.study_page)
 
-        # 页面4: 学习统计
+        # 页面4: 听写练习
+        self.dictation_page = DictationPage(self.dictionary, self.database)
+        self.stack.addWidget(self.dictation_page)
+
+        # 页面5: 学习统计
         self.stats_page = StatsPage(self.database)
         self.stack.addWidget(self.stats_page)
 
