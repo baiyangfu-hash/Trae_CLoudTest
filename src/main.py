@@ -3,11 +3,12 @@
 """
 import sys
 import os
+from datetime import datetime
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QLineEdit, QPushButton, QListWidget, QTextEdit,
     QStackedWidget, QFrame, QScrollArea, QGridLayout, QMessageBox,
-    QSizePolicy
+    QSizePolicy, QProgressBar
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QFont, QIcon
@@ -15,6 +16,7 @@ from PySide6.QtGui import QFont, QIcon
 from dictionary import Dictionary
 from database import Database
 from dialogs_data import get_all_dialogs, get_dialog
+from fsrs_engine import FSRSEngine, FSRSState
 
 class WordCard(QFrame):
     """单词卡片组件"""
@@ -439,6 +441,441 @@ class DialogPage(QWidget):
         else:
             self.lookup_result.hide()
 
+class StudyPage(QWidget):
+    """单词学习页面 - 间隔重复卡片"""
+    def __init__(self, dictionary, database, parent=None):
+        super().__init__(parent)
+        self.dictionary = dictionary
+        self.database = database
+        self.fsrs = FSRSEngine()
+        self.current_word = None
+        self.current_word_data = None
+        self.showing_answer = False
+        self._setup_ui()
+        self._load_next_card()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(16)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setAlignment(Qt.AlignCenter)
+
+        # 顶部信息栏
+        info_layout = QHBoxLayout()
+        self.progress_label = QLabel("今日新词: 0 | 待复习: 0")
+        self.progress_label.setStyleSheet("font-size: 14px; color: #7f8c8d;")
+        info_layout.addWidget(self.progress_label)
+        info_layout.addStretch()
+
+        self.streak_label = QLabel("🔥 连续学习: 0 天")
+        self.streak_label.setStyleSheet("font-size: 14px; color: #e67e22;")
+        info_layout.addWidget(self.streak_label)
+        layout.addLayout(info_layout)
+
+        # 进度条
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: none;
+                border-radius: 4px;
+                background-color: #e0e0e0;
+                height: 8px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background-color: #4a90d9;
+                border-radius: 4px;
+            }
+        """)
+        self.progress_bar.setMaximumHeight(8)
+        self.progress_bar.setTextVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        layout.addSpacing(30)
+
+        # 单词卡片区域
+        self.card_frame = QFrame()
+        self.card_frame.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: 2px solid #e0e0e0;
+                border-radius: 16px;
+                padding: 40px;
+            }
+        """)
+        self.card_frame.setMinimumSize(600, 350)
+        self.card_frame.setMaximumSize(700, 450)
+        card_layout = QVBoxLayout(self.card_frame)
+        card_layout.setSpacing(16)
+        card_layout.setAlignment(Qt.AlignCenter)
+
+        # 单词
+        self.word_label = QLabel("Loading...")
+        self.word_label.setStyleSheet("font-size: 42px; font-weight: bold; color: #2c3e50;")
+        self.word_label.setAlignment(Qt.AlignCenter)
+        card_layout.addWidget(self.word_label)
+
+        # 音标
+        self.phonetic_label = QLabel("")
+        self.phonetic_label.setStyleSheet("font-size: 20px; color: #7f8c8d;")
+        self.phonetic_label.setAlignment(Qt.AlignCenter)
+        card_layout.addWidget(self.phonetic_label)
+
+        # 分隔线
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("color: #e0e0e0;")
+        line.setMaximumWidth(400)
+        card_layout.addWidget(line, alignment=Qt.AlignCenter)
+
+        # 释义区域（默认隐藏）
+        self.answer_area = QWidget()
+        answer_layout = QVBoxLayout(self.answer_area)
+        answer_layout.setSpacing(12)
+        answer_layout.setAlignment(Qt.AlignCenter)
+
+        self.pos_label = QLabel("")
+        self.pos_label.setStyleSheet("font-size: 16px; color: #95a5a6;")
+        self.pos_label.setAlignment(Qt.AlignCenter)
+        answer_layout.addWidget(self.pos_label)
+
+        self.translation_label = QLabel("")
+        self.translation_label.setStyleSheet("font-size: 22px; color: #34495e;")
+        self.translation_label.setAlignment(Qt.AlignCenter)
+        self.translation_label.setWordWrap(True)
+        answer_layout.addWidget(self.translation_label)
+
+        self.definition_label = QLabel("")
+        self.definition_label.setStyleSheet("font-size: 14px; color: #7f8c8d; font-style: italic;")
+        self.definition_label.setAlignment(Qt.AlignCenter)
+        self.definition_label.setWordWrap(True)
+        answer_layout.addWidget(self.definition_label)
+
+        card_layout.addWidget(self.answer_area)
+        self.answer_area.hide()
+
+        layout.addWidget(self.card_frame, alignment=Qt.AlignCenter)
+        layout.addSpacing(20)
+
+        # 按钮区域
+        self.btn_area = QWidget()
+        btn_layout = QHBoxLayout(self.btn_area)
+        btn_layout.setSpacing(12)
+        btn_layout.setAlignment(Qt.AlignCenter)
+
+        # 显示答案按钮
+        self.show_btn = QPushButton("显示答案")
+        self.show_btn.setStyleSheet("""
+            QPushButton {
+                padding: 14px 60px;
+                background-color: #4a90d9;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                font-size: 16px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #357abd;
+            }
+        """)
+        self.show_btn.clicked.connect(self._show_answer)
+        btn_layout.addWidget(self.show_btn)
+
+        # 评分按钮（默认隐藏）
+        self.rating_buttons = []
+        rating_configs = [
+            ("again", "重来", "#e74c3c", "1天"),
+            ("hard", "困难", "#e67e22", "2天"),
+            ("good", "一般", "#4a90d9", "4天"),
+            ("easy", "简单", "#27ae60", "7天"),
+        ]
+
+        for rating, text, color, default_interval in rating_configs:
+            btn = QPushButton(f"{text}\n< {default_interval}")
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    padding: 10px 20px;
+                    background-color: {color};
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    font-size: 14px;
+                    font-weight: bold;
+                }}
+                QPushButton:hover {{
+                    background-color: {color};
+                    opacity: 0.8;
+                }}
+            """)
+            btn.setProperty("rating", rating)
+            btn.clicked.connect(lambda checked, r=rating: self._on_rating(r))
+            btn.hide()
+            btn_layout.addWidget(btn)
+            self.rating_buttons.append(btn)
+
+        layout.addWidget(self.btn_area, alignment=Qt.AlignCenter)
+        layout.addStretch()
+
+    def _load_next_card(self):
+        """加载下一张卡片"""
+        # 先获取到期复习的单词
+        due_words = self.database.get_due_words(limit=10)
+
+        # 如果没有到期单词，获取随机新词
+        if not due_words:
+            random_words = self.dictionary.get_random_words(10)
+            for word_data in random_words:
+                self.database.get_or_create_user_word(word_data['word'])
+            due_words = self.database.get_due_words(limit=10)
+
+        if due_words:
+            self.current_word = due_words[0]['word']
+            self.current_word_data = self.dictionary.lookup(self.current_word)
+            if isinstance(self.current_word_data, dict):
+                self._show_card()
+            else:
+                # 如果词典查不到，跳过
+                self._load_next_card()
+        else:
+            self.word_label.setText("🎉 今日学习完成！")
+            self.phonetic_label.setText("明天再来吧")
+            self.show_btn.hide()
+            for btn in self.rating_buttons:
+                btn.hide()
+
+        self._update_progress()
+
+    def _show_card(self):
+        """显示卡片正面"""
+        self.showing_answer = False
+        self.answer_area.hide()
+        self.show_btn.show()
+        for btn in self.rating_buttons:
+            btn.hide()
+
+        word = self.current_word_data.get('word', '')
+        phonetic = self.current_word_data.get('phonetic', '')
+
+        self.word_label.setText(word)
+        self.phonetic_label.setText(f"/{phonetic}/" if phonetic else "")
+
+    def _show_answer(self):
+        """显示答案"""
+        self.showing_answer = True
+        self.show_btn.hide()
+
+        translation = self.current_word_data.get('translation', '暂无释义')
+        definition = self.current_word_data.get('definition', '')
+        pos = self.current_word_data.get('pos', '')
+
+        self.pos_label.setText(pos)
+        self.translation_label.setText(translation)
+        self.definition_label.setText(definition)
+        self.answer_area.show()
+
+        # 显示评分按钮并更新间隔天数
+        user_word = self.database.get_or_create_user_word(self.current_word)
+        fsrs_state = FSRSState.from_json(user_word.get('fsrs_state'))
+        intervals = self.fsrs.get_rating_intervals(fsrs_state)
+
+        interval_texts = {
+            'again': '1天',
+            'hard': f"{intervals.get('hard', 2)}天",
+            'good': f"{intervals.get('good', 4)}天",
+            'easy': f"{intervals.get('easy', 7)}天",
+        }
+
+        rating_texts = {
+            'again': '重来',
+            'hard': '困难',
+            'good': '一般',
+            'easy': '简单',
+        }
+
+        for btn in self.rating_buttons:
+            rating = btn.property("rating")
+            btn.setText(f"{rating_texts.get(rating, rating)}\n< {interval_texts.get(rating, '1天')}")
+            btn.show()
+
+    def _on_rating(self, rating):
+        """处理评分"""
+        if not self.current_word:
+            return
+
+        # 获取当前状态
+        user_word = self.database.get_or_create_user_word(self.current_word)
+        fsrs_state = FSRSState.from_json(user_word.get('fsrs_state'))
+
+        # 执行 FSRS 算法
+        new_state, due_date = self.fsrs.review(fsrs_state, rating)
+
+        # 更新数据库
+        status = 'learning' if new_state.state in [1, 3] else 'review'
+        self.database.update_user_word(
+            self.current_word,
+            status=status,
+            fsrs_state=new_state.to_json(),
+            due_date=due_date.isoformat()
+        )
+
+        # 记录学习
+        self.database.add_study_record(self.current_word, 'review', rating)
+
+        # 更新统计
+        is_new = user_word.get('status') == 'new'
+        self.database.update_daily_stats(
+            new_words=1 if is_new else 0,
+            review_words=0 if is_new else 1,
+            correct_count=1 if rating != 'again' else 0,
+            total_count=1
+        )
+
+        # 加载下一张
+        self._load_next_card()
+
+    def _update_progress(self):
+        """更新进度显示"""
+        stats = self.database.get_daily_stats()
+        due_count = len(self.database.get_due_words(limit=100))
+        self.progress_label.setText(f"今日新词: {stats['new_words']} | 待复习: {due_count}")
+        self.progress_bar.setValue(min(stats['new_words'] + stats['review_words'], 50))
+        self.progress_bar.setMaximum(50)
+
+
+class StatsPage(QWidget):
+    """学习统计页面"""
+    def __init__(self, database, parent=None):
+        super().__init__(parent)
+        self.database = database
+        self._setup_ui()
+        self._load_stats()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(20)
+        layout.setContentsMargins(30, 30, 30, 30)
+
+        # 标题
+        title = QLabel("📊 学习统计")
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #2c3e50;")
+        layout.addWidget(title)
+
+        # 今日概览卡片
+        overview = QFrame()
+        overview.setStyleSheet("""
+            QFrame {
+                background-color: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 12px;
+                padding: 20px;
+            }
+        """)
+        overview_layout = QHBoxLayout(overview)
+        overview_layout.setSpacing(30)
+
+        self.stat_labels = {}
+        stat_items = [
+            ("new_words", "📝 新词", "#4a90d9"),
+            ("review_words", "🔄 复习", "#27ae60"),
+            ("correct_rate", "✅ 正确率", "#e67e22"),
+            ("study_minutes", "⏱️ 分钟", "#9b59b6"),
+        ]
+
+        for key, label, color in stat_items:
+            item_widget = QWidget()
+            item_layout = QVBoxLayout(item_widget)
+            item_layout.setAlignment(Qt.AlignCenter)
+
+            value_label = QLabel("0")
+            value_label.setStyleSheet(f"font-size: 32px; font-weight: bold; color: {color};")
+            value_label.setAlignment(Qt.AlignCenter)
+            item_layout.addWidget(value_label)
+
+            name_label = QLabel(label)
+            name_label.setStyleSheet("font-size: 14px; color: #7f8c8d;")
+            name_label.setAlignment(Qt.AlignCenter)
+            item_layout.addWidget(name_label)
+
+            overview_layout.addWidget(item_widget)
+            self.stat_labels[key] = value_label
+
+        layout.addWidget(overview)
+
+        # 学习记录
+        records_title = QLabel("📋 最近学习记录")
+        records_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50; margin-top: 20px;")
+        layout.addWidget(records_title)
+
+        self.records_text = QTextEdit()
+        self.records_text.setReadOnly(True)
+        self.records_text.setStyleSheet("""
+            QTextEdit {
+                background-color: white;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                padding: 12px;
+                font-size: 13px;
+                line-height: 1.6;
+            }
+        """)
+        self.records_text.setMaximumHeight(200)
+        layout.addWidget(self.records_text)
+
+        # 刷新按钮
+        refresh_btn = QPushButton("刷新统计")
+        refresh_btn.setStyleSheet("""
+            QPushButton {
+                padding: 10px 24px;
+                background-color: #4a90d9;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #357abd;
+            }
+        """)
+        refresh_btn.clicked.connect(self._load_stats)
+        layout.addWidget(refresh_btn, alignment=Qt.AlignLeft)
+
+        layout.addStretch()
+
+    def _load_stats(self):
+        """加载统计数据"""
+        stats = self.database.get_daily_stats()
+
+        self.stat_labels['new_words'].setText(str(stats['new_words']))
+        self.stat_labels['review_words'].setText(str(stats['review_words']))
+
+        correct_rate = 0
+        if stats['total_count'] > 0:
+            correct_rate = round(stats['correct_count'] / stats['total_count'] * 100)
+        self.stat_labels['correct_rate'].setText(f"{correct_rate}%")
+
+        self.stat_labels['study_minutes'].setText(str(stats['study_minutes']))
+
+        # 加载最近记录
+        conn = self.database.conn
+        cursor = conn.cursor()
+        cursor.execute(
+            'SELECT word, action, result, created_at FROM study_records ORDER BY created_at DESC LIMIT 20'
+        )
+        records = cursor.fetchall()
+
+        text = "<table style='width:100%; border-collapse:collapse;'>"
+        text += "<tr style='background:#f5f5f5;'><th style='padding:8px;text-align:left;'>单词</th><th style='padding:8px;text-align:left;'>操作</th><th style='padding:8px;text-align:left;'>结果</th><th style='padding:8px;text-align:left;'>时间</th></tr>"
+
+        for row in records:
+            word, action, result, created_at = row
+            result_text = result or '-'
+            text += f"<tr><td style='padding:6px;border-bottom:1px solid #eee;'><b>{word}</b></td><td style='padding:6px;border-bottom:1px solid #eee;'>{action}</td><td style='padding:6px;border-bottom:1px solid #eee;'>{result_text}</td><td style='padding:6px;border-bottom:1px solid #eee;color:#999;'>{created_at}</td></tr>"
+
+        text += "</table>"
+        self.records_text.setHtml(text)
+
+
 class MainWindow(QMainWindow):
     """主窗口"""
     def __init__(self):
@@ -547,22 +984,12 @@ class MainWindow(QMainWindow):
         self.dict_page = DictionaryPage(self.dictionary)
         self.stack.addWidget(self.dict_page)
 
-        # 页面3: 单词学习 (占位)
-        self.study_page = QWidget()
-        study_layout = QVBoxLayout(self.study_page)
-        study_label = QLabel("单词学习功能开发中...")
-        study_label.setStyleSheet("font-size: 18px; color: #7f8c8d;")
-        study_label.setAlignment(Qt.AlignCenter)
-        study_layout.addWidget(study_label)
+        # 页面3: 单词学习
+        self.study_page = StudyPage(self.dictionary, self.database)
         self.stack.addWidget(self.study_page)
 
-        # 页面4: 学习统计 (占位)
-        self.stats_page = QWidget()
-        stats_layout = QVBoxLayout(self.stats_page)
-        stats_label = QLabel("学习统计功能开发中...")
-        stats_label.setStyleSheet("font-size: 18px; color: #7f8c8d;")
-        stats_label.setAlignment(Qt.AlignCenter)
-        stats_layout.addWidget(stats_label)
+        # 页面4: 学习统计
+        self.stats_page = StatsPage(self.database)
         self.stack.addWidget(self.stats_page)
 
         layout.addWidget(self.stack)
