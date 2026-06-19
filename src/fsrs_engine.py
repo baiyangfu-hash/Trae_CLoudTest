@@ -61,7 +61,13 @@ class FSRSEngine:
 
     def init_stability(self, rating):
         """初始化稳定性"""
-        return max(0.1, self.w[rating - 1])
+        # w[0]=again, w[1]=hard, w[2]=good, w[3]=easy
+        # 确保 easy > good > hard > again
+        base = max(0.1, self.w[rating - 1])
+        if rating == 4:  # easy: 在 good 基础上增加 50%
+            good_base = max(0.1, self.w[2])
+            return good_base * 1.5
+        return base
 
     def next_difficulty(self, difficulty, rating):
         """计算下一个难度"""
@@ -101,7 +107,15 @@ class FSRSEngine:
             new_state.stability = self.init_stability(rating_val)
             new_state.difficulty = self.init_difficulty(rating_val)
             new_state.state = 1 if rating_val > 1 else 0
-            new_state.scheduled_days = 1 if rating_val > 1 else 0
+            # 根据评分设置不同的初始间隔
+            if rating_val == 1:
+                new_state.scheduled_days = 0
+            elif rating_val == 2:
+                new_state.scheduled_days = 1
+            elif rating_val == 3:
+                new_state.scheduled_days = 3
+            else:  # easy
+                new_state.scheduled_days = 5
             
         elif state.state == 1 or state.state == 3:  # 学习中或重新学习
             if rating_val == 1:  # 重来

@@ -1,0 +1,15 @@
+英语学习助手 - 测试报告
+时间: 2026-06-19T21:03:15.744635
+总计: 10 | 通过: 10 | 失败: 0
+通过率: 100.0%
+
+✅ 模块导入
+✅ 词典模块 (dictionary.py)
+✅ 数据库模块 (database.py)
+✅ FSRS 算法 (fsrs_engine.py)
+✅ 答案匹配引擎 (answer_matcher.py)
+✅ 基础对话数据 (dialogs_data.py)
+✅ 美国出差对话 (us_travel_dialogs.py)
+✅ TTS 引擎 (tts_engine.py)
+✅ ASR 引擎 (asr_engine.py)
+✅ 主程序导入 (main.py)
