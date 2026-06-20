@@ -17,6 +17,8 @@ from dictionary import Dictionary
 from database import Database
 from dialogs_data import get_all_dialogs, get_dialog
 from fsrs_engine import FSRSEngine, FSRSState
+from tts_engine import TTSEngine
+from cefr_tagger import CEFRTagger, get_words_by_level
 from dictation_page import DictationPage
 from us_travel_dialogs import get_all_us_dialogs, get_us_dialog
 from roleplay_page import RolePlayPage
@@ -519,23 +521,28 @@ class DialogPage(QWidget):
             QMessageBox.warning(self, "导入失败", f"导入对话失败:\n{str(e)}")
 
 class StudyPage(QWidget):
-    """单词学习页面 - 间隔重复卡片"""
-    def __init__(self, dictionary, database, parent=None):
+    """单词学习页面 - CEFR分级 + 三种学习模式 + 间隔重复"""
+    def __init__(self, dictionary, database, tts=None, parent=None):
         super().__init__(parent)
         self.dictionary = dictionary
         self.database = database
+        self.tts = tts
         self.fsrs = FSRSEngine()
+        self.cefr_tagger = CEFRTagger()
         self.current_word = None
         self.current_word_data = None
         self.showing_answer = False
+        self.current_cefr = "全部"
+        self.current_mode = "card"
+        self._level_words = []
+        self._level_word_idx = 0
         self._setup_ui()
         self._load_next_card()
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
-        layout.setSpacing(16)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(12)
+        layout.setContentsMargins(24, 24, 24, 24)
 
         # 顶部信息栏
         info_layout = QHBoxLayout()
@@ -543,276 +550,632 @@ class StudyPage(QWidget):
         self.progress_label.setStyleSheet("font-size: 14px; color: #7f8c8d;")
         info_layout.addWidget(self.progress_label)
         info_layout.addStretch()
-
         self.streak_label = QLabel("🔥 连续学习: 0 天")
         self.streak_label.setStyleSheet("font-size: 14px; color: #e67e22;")
         info_layout.addWidget(self.streak_label)
         layout.addLayout(info_layout)
 
+        # CEFR 等级筛选
+        self._setup_cefr_tabs(layout)
+
+        # 学习模式切换
+        self._setup_mode_tabs(layout)
+
         # 进度条
         self.progress_bar = QProgressBar()
         self.progress_bar.setStyleSheet("""
-            QProgressBar {
-                border: none;
-                border-radius: 4px;
-                background-color: #e0e0e0;
-                height: 8px;
-                text-align: center;
-            }
-            QProgressBar::chunk {
-                background-color: #4a90d9;
-                border-radius: 4px;
-            }
+            QProgressBar { border: none; border-radius: 4px; background-color: #e0e0e0; height: 6px; text-align: center; }
+            QProgressBar::chunk { background-color: #4a90d9; border-radius: 4px; }
         """)
-        self.progress_bar.setMaximumHeight(8)
+        self.progress_bar.setMaximumHeight(6)
         self.progress_bar.setTextVisible(False)
         layout.addWidget(self.progress_bar)
 
-        layout.addSpacing(30)
+        # 学习内容区域（三种模式共用一个容器，切换显示）
+        self.content_stack = QStackedWidget()
+        layout.addWidget(self.content_stack, 1)
 
-        # 单词卡片区域
+        # 卡片模式
+        self.card_widget = QWidget()
+        self._setup_card_mode_ui()
+        self.content_stack.addWidget(self.card_widget)
+
+        # 选择题模式
+        self.quiz_widget = QWidget()
+        self._setup_quiz_mode_ui()
+        self.content_stack.addWidget(self.quiz_widget)
+
+        # 拼写模式
+        self.spell_widget = QWidget()
+        self._setup_spell_mode_ui()
+        self.content_stack.addWidget(self.spell_widget)
+
+    def _setup_cefr_tabs(self, parent_layout):
+        """CEFR 等级筛选标签"""
+        cefr_layout = QHBoxLayout()
+        cefr_layout.setSpacing(4)
+        self.cefr_buttons = []
+        levels = [("全部", "全部"), ("A1 入门", "A1"), ("A2 基础", "A2"), ("B1 进阶", "B1")]
+        colors = {"全部": "#4a90d9", "A1": "#3498db", "A2": "#27ae60", "B1": "#e67e22"}
+        for label, level in levels:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setChecked(level == "全部")
+            btn.setCursor(Qt.PointingHandCursor)
+            c = colors.get(level, "#4a90d9")
+            btn.setStyleSheet(f"""
+                QPushButton {{ padding: 6px 16px; border: 2px solid {c}; border-radius: 16px;
+                    background: transparent; color: {c}; font-size: 13px; font-weight: bold; }}
+                QPushButton:checked {{ background: {c}; color: white; }}
+                QPushButton:hover {{ background: {c}22; }}
+            """)
+            btn.clicked.connect(lambda checked, lv=level: self._on_cefr_tab(lv))
+            cefr_layout.addWidget(btn)
+            self.cefr_buttons.append((btn, level))
+        cefr_layout.addStretch()
+        parent_layout.addLayout(cefr_layout)
+
+    def _setup_mode_tabs(self, parent_layout):
+        """学习模式切换"""
+        mode_layout = QHBoxLayout()
+        mode_layout.setSpacing(4)
+        self.mode_buttons = []
+        modes = [("🃏 卡片模式", "card"), ("✅ 选择题", "quiz"), ("⌨️ 拼写模式", "spell")]
+        for label, mode in modes:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setChecked(mode == "card")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet("""
+                QPushButton { padding: 6px 14px; border: 1px solid #d0d0d0; border-radius: 6px;
+                    background: transparent; color: #555; font-size: 12px; }
+                QPushButton:checked { background: #2c3e50; color: white; border-color: #2c3e50; }
+                QPushButton:hover { background: #f0f0f0; }
+            """)
+            btn.clicked.connect(lambda checked, m=mode: self._on_mode_tab(m))
+            mode_layout.addWidget(btn)
+            self.mode_buttons.append((btn, mode))
+        mode_layout.addStretch()
+        parent_layout.addLayout(mode_layout)
+
+    def _setup_card_mode_ui(self):
+        """卡片模式 UI"""
+        layout = QVBoxLayout(self.card_widget)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(16)
+
         self.card_frame = QFrame()
-        self.card_frame.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border: 2px solid #e0e0e0;
-                border-radius: 16px;
-                padding: 40px;
-            }
-        """)
-        self.card_frame.setMinimumSize(600, 350)
-        self.card_frame.setMaximumSize(700, 450)
+        self.card_frame.setStyleSheet("QFrame { background: white; border: 2px solid #e0e0e0; border-radius: 16px; padding: 40px; }")
+        self.card_frame.setMinimumSize(550, 320)
+        self.card_frame.setMaximumSize(650, 420)
         card_layout = QVBoxLayout(self.card_frame)
-        card_layout.setSpacing(16)
+        card_layout.setSpacing(12)
         card_layout.setAlignment(Qt.AlignCenter)
 
-        # 单词
+        # 单词行（含 CEFR 标签 + 发音按钮）
+        word_row = QHBoxLayout()
+        word_row.setAlignment(Qt.AlignCenter)
         self.word_label = QLabel("Loading...")
-        self.word_label.setStyleSheet("font-size: 42px; font-weight: bold; color: #2c3e50;")
-        self.word_label.setAlignment(Qt.AlignCenter)
-        card_layout.addWidget(self.word_label)
+        self.word_label.setStyleSheet("font-size: 38px; font-weight: bold; color: #2c3e50;")
+        word_row.addWidget(self.word_label)
+
+        self.cefr_badge = QLabel("")
+        self.cefr_badge.setStyleSheet("font-size: 11px; padding: 2px 8px; border-radius: 10px; color: white;")
+        self.cefr_badge.hide()
+        word_row.addWidget(self.cefr_badge)
+
+        self.speak_btn = QPushButton("🔊")
+        self.speak_btn.setFixedSize(36, 36)
+        self.speak_btn.setCursor(Qt.PointingHandCursor)
+        self.speak_btn.setStyleSheet("QPushButton { border: none; background: #e8f4fc; border-radius: 18px; font-size: 16px; } QPushButton:hover { background: #d0e8f7; }")
+        self.speak_btn.clicked.connect(self._on_speak)
+        word_row.addWidget(self.speak_btn)
+        card_layout.addLayout(word_row)
 
         # 音标
         self.phonetic_label = QLabel("")
-        self.phonetic_label.setStyleSheet("font-size: 20px; color: #7f8c8d;")
+        self.phonetic_label.setStyleSheet("font-size: 18px; color: #7f8c8d;")
         self.phonetic_label.setAlignment(Qt.AlignCenter)
         card_layout.addWidget(self.phonetic_label)
+
+        # 词频
+        self.collins_label = QLabel("")
+        self.collins_label.setStyleSheet("font-size: 12px; color: #bdc3c7;")
+        self.collins_label.setAlignment(Qt.AlignCenter)
+        card_layout.addWidget(self.collins_label)
 
         # 分隔线
         line = QFrame()
         line.setFrameShape(QFrame.HLine)
         line.setStyleSheet("color: #e0e0e0;")
-        line.setMaximumWidth(400)
+        line.setMaximumWidth(380)
         card_layout.addWidget(line, alignment=Qt.AlignCenter)
 
-        # 释义区域（默认隐藏）
+        # 答案区域
         self.answer_area = QWidget()
-        answer_layout = QVBoxLayout(self.answer_area)
-        answer_layout.setSpacing(12)
-        answer_layout.setAlignment(Qt.AlignCenter)
+        ans_layout = QVBoxLayout(self.answer_area)
+        ans_layout.setSpacing(8)
+        ans_layout.setAlignment(Qt.AlignCenter)
 
         self.pos_label = QLabel("")
-        self.pos_label.setStyleSheet("font-size: 16px; color: #95a5a6;")
+        self.pos_label.setStyleSheet("font-size: 14px; color: #95a5a6;")
         self.pos_label.setAlignment(Qt.AlignCenter)
-        answer_layout.addWidget(self.pos_label)
+        ans_layout.addWidget(self.pos_label)
 
         self.translation_label = QLabel("")
-        self.translation_label.setStyleSheet("font-size: 22px; color: #34495e;")
+        self.translation_label.setStyleSheet("font-size: 20px; color: #34495e;")
         self.translation_label.setAlignment(Qt.AlignCenter)
         self.translation_label.setWordWrap(True)
-        answer_layout.addWidget(self.translation_label)
+        ans_layout.addWidget(self.translation_label)
 
         self.definition_label = QLabel("")
-        self.definition_label.setStyleSheet("font-size: 14px; color: #7f8c8d; font-style: italic;")
+        self.definition_label.setStyleSheet("font-size: 13px; color: #7f8c8d; font-style: italic;")
         self.definition_label.setAlignment(Qt.AlignCenter)
         self.definition_label.setWordWrap(True)
-        answer_layout.addWidget(self.definition_label)
+        ans_layout.addWidget(self.definition_label)
+
+        self.example_label = QLabel("")
+        self.example_label.setStyleSheet("font-size: 13px; color: #8e44ad; padding: 6px 12px; background: #f5eef8; border-radius: 6px;")
+        self.example_label.setAlignment(Qt.AlignCenter)
+        self.example_label.setWordWrap(True)
+        self.example_label.hide()
+        ans_layout.addWidget(self.example_label)
 
         card_layout.addWidget(self.answer_area)
         self.answer_area.hide()
-
         layout.addWidget(self.card_frame, alignment=Qt.AlignCenter)
-        layout.addSpacing(20)
 
         # 按钮区域
-        self.btn_area = QWidget()
-        btn_layout = QHBoxLayout(self.btn_area)
-        btn_layout.setSpacing(12)
+        btn_layout = QHBoxLayout()
         btn_layout.setAlignment(Qt.AlignCenter)
+        btn_layout.setSpacing(10)
 
-        # 显示答案按钮
         self.show_btn = QPushButton("显示答案")
-        self.show_btn.setStyleSheet("""
-            QPushButton {
-                padding: 14px 60px;
-                background-color: #4a90d9;
-                color: white;
-                border: none;
-                border-radius: 8px;
-                font-size: 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #357abd;
-            }
-        """)
+        self.show_btn.setStyleSheet("QPushButton { padding: 12px 50px; background: #4a90d9; color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; } QPushButton:hover { background: #357abd; }")
         self.show_btn.clicked.connect(self._show_answer)
         btn_layout.addWidget(self.show_btn)
 
-        # 评分按钮（默认隐藏）
         self.rating_buttons = []
-        rating_configs = [
-            ("again", "重来", "#e74c3c", "1天"),
-            ("hard", "困难", "#e67e22", "2天"),
-            ("good", "一般", "#4a90d9", "4天"),
-            ("easy", "简单", "#27ae60", "7天"),
-        ]
-
-        for rating, text, color, default_interval in rating_configs:
-            btn = QPushButton(f"{text}\n< {default_interval}")
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    padding: 10px 20px;
-                    background-color: {color};
-                    color: white;
-                    border: none;
-                    border-radius: 8px;
-                    font-size: 14px;
-                    font-weight: bold;
-                }}
-                QPushButton:hover {{
-                    background-color: {color};
-                    opacity: 0.8;
-                }}
-            """)
+        for rating, text, color in [("again", "重来", "#e74c3c"), ("hard", "困难", "#e67e22"), ("good", "一般", "#4a90d9"), ("easy", "简单", "#27ae60")]:
+            btn = QPushButton(text)
+            btn.setStyleSheet(f"QPushButton {{ padding: 10px 18px; background: {color}; color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: bold; }} QPushButton:hover {{ opacity: 0.8; }}")
             btn.setProperty("rating", rating)
             btn.clicked.connect(lambda checked, r=rating: self._on_rating(r))
             btn.hide()
             btn_layout.addWidget(btn)
             self.rating_buttons.append(btn)
 
-        layout.addWidget(self.btn_area, alignment=Qt.AlignCenter)
-        layout.addStretch()
+        layout.addLayout(btn_layout)
 
+    def _setup_quiz_mode_ui(self):
+        """选择题模式 UI"""
+        layout = QVBoxLayout(self.quiz_widget)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(20)
+
+        self.quiz_frame = QFrame()
+        self.quiz_frame.setStyleSheet("QFrame { background: white; border: 2px solid #e0e0e0; border-radius: 16px; padding: 40px; }")
+        self.quiz_frame.setMinimumSize(500, 380)
+        self.quiz_frame.setMaximumSize(600, 450)
+        qf_layout = QVBoxLayout(self.quiz_frame)
+        qf_layout.setSpacing(16)
+        qf_layout.setAlignment(Qt.AlignCenter)
+
+        self.quiz_word_label = QLabel("")
+        self.quiz_word_label.setStyleSheet("font-size: 36px; font-weight: bold; color: #2c3e50;")
+        self.quiz_word_label.setAlignment(Qt.AlignCenter)
+        qf_layout.addWidget(self.quiz_word_label)
+
+        self.quiz_phonetic_label = QLabel("")
+        self.quiz_phonetic_label.setStyleSheet("font-size: 16px; color: #7f8c8d;")
+        self.quiz_phonetic_label.setAlignment(Qt.AlignCenter)
+        qf_layout.addWidget(self.quiz_phonetic_label)
+
+        qf_layout.addWidget(self._make_separator())
+
+        self.quiz_prompt = QLabel("选择正确的中文释义：")
+        self.quiz_prompt.setStyleSheet("font-size: 14px; color: #7f8c8d;")
+        self.quiz_prompt.setAlignment(Qt.AlignCenter)
+        qf_layout.addWidget(self.quiz_prompt)
+
+        self.quiz_options_layout = QVBoxLayout()
+        self.quiz_options_layout.setSpacing(10)
+        qf_layout.addLayout(self.quiz_options_layout)
+
+        self.quiz_feedback = QLabel("")
+        self.quiz_feedback.setAlignment(Qt.AlignCenter)
+        self.quiz_feedback.setStyleSheet("font-size: 16px; font-weight: bold;")
+        self.quiz_feedback.hide()
+        qf_layout.addWidget(self.quiz_feedback)
+
+        layout.addWidget(self.quiz_frame, alignment=Qt.AlignCenter)
+
+    def _setup_spell_mode_ui(self):
+        """拼写模式 UI"""
+        layout = QVBoxLayout(self.spell_widget)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(20)
+
+        self.spell_frame = QFrame()
+        self.spell_frame.setStyleSheet("QFrame { background: white; border: 2px solid #e0e0e0; border-radius: 16px; padding: 40px; }")
+        self.spell_frame.setMinimumSize(500, 350)
+        self.spell_frame.setMaximumSize(600, 420)
+        sf_layout = QVBoxLayout(self.spell_frame)
+        sf_layout.setSpacing(16)
+        sf_layout.setAlignment(Qt.AlignCenter)
+
+        self.spell_hint = QLabel("")
+        self.spell_hint.setStyleSheet("font-size: 20px; color: #34495e;")
+        self.spell_hint.setAlignment(Qt.AlignCenter)
+        self.spell_hint.setWordWrap(True)
+        sf_layout.addWidget(self.spell_hint)
+
+        self.spell_speak_btn = QPushButton("🔊 再听一次")
+        self.spell_speak_btn.setStyleSheet("QPushButton { padding: 8px 20px; background: #e8f4fc; color: #4a90d9; border: none; border-radius: 8px; font-size: 14px; } QPushButton:hover { background: #d0e8f7; }")
+        self.spell_speak_btn.clicked.connect(self._on_speak)
+        sf_layout.addWidget(self.spell_speak_btn, alignment=Qt.AlignCenter)
+
+        sf_layout.addWidget(self._make_separator())
+
+        self.spell_input = QLineEdit()
+        self.spell_input.setPlaceholderText("输入英文单词...")
+        self.spell_input.setAlignment(Qt.AlignCenter)
+        self.spell_input.setStyleSheet("QLineEdit { padding: 12px; font-size: 24px; border: 2px solid #e0e0e0; border-radius: 8px; text-align: center; } QLineEdit:focus { border-color: #4a90d9; }")
+        self.spell_input.returnPressed.connect(self._on_spell_submit)
+        sf_layout.addWidget(self.spell_input)
+
+        self.spell_result = QLabel("")
+        self.spell_result.setAlignment(Qt.AlignCenter)
+        self.spell_result.setStyleSheet("font-size: 18px;")
+        self.spell_result.hide()
+        sf_layout.addWidget(self.spell_result)
+
+        self.spell_submit_btn = QPushButton("提交")
+        self.spell_submit_btn.setStyleSheet("QPushButton { padding: 10px 40px; background: #4a90d9; color: white; border: none; border-radius: 8px; font-size: 14px; font-weight: bold; } QPushButton:hover { background: #357abd; }")
+        self.spell_submit_btn.clicked.connect(self._on_spell_submit)
+        sf_layout.addWidget(self.spell_submit_btn, alignment=Qt.AlignCenter)
+
+        layout.addWidget(self.spell_frame, alignment=Qt.AlignCenter)
+
+    def _make_separator(self):
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("color: #e0e0e0;")
+        line.setMaximumWidth(350)
+        return line
+
+    # --- CEFR / Mode 切换 ---
+    def _on_cefr_tab(self, level):
+        self.current_cefr = level
+        for btn, lv in self.cefr_buttons:
+            btn.setChecked(lv == level)
+        self._level_words = []
+        self._level_word_idx = 0
+        self._load_next_card()
+
+    def _on_mode_tab(self, mode):
+        self.current_mode = mode
+        for btn, m in self.mode_buttons:
+            btn.setChecked(m == mode)
+        mode_idx = {"card": 0, "quiz": 1, "spell": 2}[mode]
+        self.content_stack.setCurrentIndex(mode_idx)
+        self._load_next_card()
+
+    # --- 加载单词 ---
     def _load_next_card(self):
-        """加载下一张卡片"""
-        # 先获取到期复习的单词
-        due_words = self.database.get_due_words(limit=10)
+        word_data = self._get_next_word()
+        if not word_data:
+            self._show_complete()
+            return
+        self.current_word = word_data.get('word', '')
+        self.current_word_data = word_data
+        self.showing_answer = False
 
-        # 如果没有到期单词，获取随机新词
-        if not due_words:
-            random_words = self.dictionary.get_random_words(10)
-            for word_data in random_words:
-                self.database.get_or_create_user_word(word_data['word'])
-            due_words = self.database.get_due_words(limit=10)
-
-        if due_words:
-            self.current_word = due_words[0]['word']
-            self.current_word_data = self.dictionary.lookup(self.current_word)
-            if isinstance(self.current_word_data, dict):
-                self._show_card()
-            else:
-                # 如果词典查不到，跳过
-                self._load_next_card()
-        else:
-            self.word_label.setText("🎉 今日学习完成！")
-            self.phonetic_label.setText("明天再来吧")
-            self.show_btn.hide()
-            for btn in self.rating_buttons:
-                btn.hide()
+        if self.current_mode == "card":
+            self._show_card_mode()
+        elif self.current_mode == "quiz":
+            self._show_quiz_mode()
+        elif self.current_mode == "spell":
+            self._show_spell_mode()
 
         self._update_progress()
 
-    def _show_card(self):
-        """显示卡片正面"""
-        self.showing_answer = False
+    def _get_next_word(self):
+        """根据当前筛选获取下一个单词"""
+        import sqlite3, os, random
+        db_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'app.db')
+
+        if self.current_cefr != "全部":
+            # 从 vocab_cefr 表获取该等级的单词
+            try:
+                conn = sqlite3.connect(db_path)
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT vc.word, vc.cefr_level FROM vocab_cefr vc
+                    LEFT JOIN user_words uw ON vc.word = uw.word
+                    WHERE vc.cefr_level = ? AND (uw.due_date IS NULL OR uw.due_date <= datetime('now') OR uw.status = 'new')
+                    ORDER BY uw.due_date ASC NULLS FIRST
+                    LIMIT 100
+                ''', (self.current_cefr,))
+                rows = cursor.fetchall()
+                conn.close()
+                if rows:
+                    # 优先选未学过的
+                    new_words = [r for r in rows]
+                    random.shuffle(new_words)
+                    word = new_words[0]['word']
+                    result = self.dictionary.lookup(word)
+                    if isinstance(result, dict):
+                        return result
+            except sqlite3.OperationalError:
+                pass
+
+        # 默认行为：到期复习 + 随机新词
+        due_words = self.database.get_due_words(limit=10)
+        if not due_words:
+            random_words = self.dictionary.get_random_words(10)
+            for wd in random_words:
+                self.database.get_or_create_user_word(wd['word'])
+            due_words = self.database.get_due_words(limit=10)
+        if due_words:
+            word = due_words[0]['word']
+            result = self.dictionary.lookup(word)
+            if isinstance(result, dict):
+                return result
+        return None
+
+    def _show_complete(self):
+        msg = "🎉 今日学习完成！"
+        if self.current_mode == "card":
+            self.word_label.setText(msg)
+            self.phonetic_label.setText("明天再来吧")
+            self.show_btn.hide()
+            for b in self.rating_buttons:
+                b.hide()
+        elif self.current_mode == "quiz":
+            self.quiz_word_label.setText(msg)
+            self.quiz_phonetic_label.setText("")
+        elif self.current_mode == "spell":
+            self.spell_hint.setText(msg)
+            self.spell_input.hide()
+            self.spell_submit_btn.hide()
+
+    # --- 卡片模式 ---
+    def _show_card_mode(self):
+        self.content_stack.setCurrentIndex(0)
         self.answer_area.hide()
         self.show_btn.show()
-        for btn in self.rating_buttons:
-            btn.hide()
+        for b in self.rating_buttons:
+            b.hide()
 
-        word = self.current_word_data.get('word', '')
-        phonetic = self.current_word_data.get('phonetic', '')
+        d = self.current_word_data
+        self.word_label.setText(d.get('word', ''))
+        self.phonetic_label.setText(f"/{d.get('phonetic', '')}/" if d.get('phonetic') else "")
 
-        self.word_label.setText(word)
-        self.phonetic_label.setText(f"/{phonetic}/" if phonetic else "")
+        # CEFR 标签
+        if self.cefr_tagger.available:
+            level = self.cefr_tagger.get_level(d.get('word', ''))
+            if level:
+                colors = {"A1": "#3498db", "A2": "#27ae60", "B1": "#e67e22", "B2": "#e74c3c", "C1": "#9b59b6", "C2": "#2c3e50"}
+                c = colors.get(str(level), "#7f8c8d")
+                self.cefr_badge.setText(str(level))
+                self.cefr_badge.setStyleSheet(f"font-size: 11px; padding: 2px 8px; border-radius: 10px; background: {c}; color: white;")
+                self.cefr_badge.show()
+            else:
+                self.cefr_badge.hide()
+        else:
+            self.cefr_badge.hide()
+
+        # Collins 星级
+        collins = d.get('collins', '')
+        if collins and collins.isdigit():
+            stars = int(collins)
+            self.collins_label.setText("⭐" * min(stars, 5) + f"  Collins {stars}星")
+            self.collins_label.show()
+        else:
+            self.collins_label.hide()
 
     def _show_answer(self):
-        """显示答案"""
         self.showing_answer = True
         self.show_btn.hide()
-
-        translation = self.current_word_data.get('translation', '暂无释义')
-        definition = self.current_word_data.get('definition', '')
-        pos = self.current_word_data.get('pos', '')
-
-        self.pos_label.setText(pos)
-        self.translation_label.setText(translation)
-        self.definition_label.setText(definition)
+        d = self.current_word_data
+        self.pos_label.setText(d.get('pos', ''))
+        self.translation_label.setText(d.get('translation', '暂无释义'))
+        self.definition_label.setText(d.get('definition', ''))
         self.answer_area.show()
 
-        # 显示评分按钮并更新间隔天数
+        # 例句
+        detail = d.get('detail', '')
+        example = self._extract_example(detail)
+        if example:
+            self.example_label.setText(f"💬 {example}")
+            self.example_label.show()
+        else:
+            self.example_label.hide()
+
+        # 评分按钮 + 间隔
         user_word = self.database.get_or_create_user_word(self.current_word)
         fsrs_state = FSRSState.from_json(user_word.get('fsrs_state'))
         intervals = self.fsrs.get_rating_intervals(fsrs_state)
-
-        interval_texts = {
-            'again': '1天',
-            'hard': f"{intervals.get('hard', 2)}天",
-            'good': f"{intervals.get('good', 4)}天",
-            'easy': f"{intervals.get('easy', 7)}天",
-        }
-
-        rating_texts = {
-            'again': '重来',
-            'hard': '困难',
-            'good': '一般',
-            'easy': '简单',
-        }
-
+        texts = {'again': '重来', 'hard': '困难', 'good': '一般', 'easy': '简单'}
         for btn in self.rating_buttons:
-            rating = btn.property("rating")
-            btn.setText(f"{rating_texts.get(rating, rating)}\n< {interval_texts.get(rating, '1天')}")
+            r = btn.property("rating")
+            btn.setText(f"{texts[r]}\n< {intervals.get(r, 1)}天")
             btn.show()
 
-    def _on_rating(self, rating):
-        """处理评分"""
-        if not self.current_word:
+    def _extract_example(self, detail):
+        """从 detail 字段提取例句"""
+        if not detail:
+            return ""
+        import re
+        # detail 格式通常是 " 〈例句〉text\n 〈例句〉text" 或类似
+        matches = re.findall(r'[A-Za-z].*?[.!?]', detail)
+        for m in matches:
+            if len(m) > 15 and len(m) < 200 and ' ' in m:
+                return m.strip()
+        return ""
+
+    def _on_speak(self):
+        if self.tts and self.tts.available and self.current_word:
+            self.tts.speak(self.current_word)
+
+    # --- 选择题模式 ---
+    def _show_quiz_mode(self):
+        self.content_stack.setCurrentIndex(1)
+        d = self.current_word_data
+        self.quiz_word_label.setText(d.get('word', ''))
+        self.quiz_phonetic_label.setText(f"/{d.get('phonetic', '')}/" if d.get('phonetic') else "")
+        self.quiz_feedback.hide()
+
+        # 清空旧选项
+        while self.quiz_options_layout.count():
+            item = self.quiz_options_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        correct = d.get('translation', '暂无释义')
+        options = self._generate_quiz_options(correct)
+
+        import random
+        random.shuffle(options)
+
+        for i, opt in enumerate(options):
+            btn = QPushButton(opt)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setStyleSheet("""
+                QPushButton { padding: 12px 20px; border: 2px solid #e0e0e0; border-radius: 8px;
+                    background: white; color: #2c3e50; font-size: 14px; text-align: left; }
+                QPushButton:hover { border-color: #4a90d9; background: #f8fbfe; }
+            """)
+            is_correct = (opt == correct)
+            btn.clicked.connect(lambda checked, o=opt, c=is_correct: self._on_quiz_answer(o, c))
+            self.quiz_options_layout.addWidget(btn)
+
+    def _generate_quiz_options(self, correct_translation):
+        """生成 4 个选择题选项"""
+        import random, sqlite3, os
+        options = [correct_translation]
+        db_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'app.db')
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            if self.current_cefr != "全部":
+                cursor.execute('SELECT word FROM vocab_cefr WHERE cefr_level = ? AND word != ? LIMIT 20',
+                               (self.current_cefr, self.current_word))
+            else:
+                cursor.execute("SELECT word FROM stardict WHERE word != ? ORDER BY RANDOM() LIMIT 20",
+                               (self.current_word,))
+            candidates = [r[0] for r in cursor.fetchall()]
+            conn.close()
+            random.shuffle(candidates)
+            for w in candidates[:3]:
+                result = self.dictionary.lookup(w)
+                if isinstance(result, dict) and result.get('translation'):
+                    t = result['translation'].split('\n')[0][:50]
+                    if t not in options:
+                        options.append(t)
+        except Exception:
+            pass
+        # 补足 4 个
+        fillers = ["一个东西", "做某事", "某种状态", "描述属性"]
+        while len(options) < 4:
+            options.append(fillers[len(options) - 1])
+        return options[:4]
+
+    def _on_quiz_answer(self, selected, is_correct):
+        # 禁用所有按钮
+        for i in range(self.quiz_options_layout.count()):
+            w = self.quiz_options_layout.itemAt(i).widget()
+            if w:
+                w.setEnabled(False)
+                if w.text() == selected:
+                    color = "#27ae60" if is_correct else "#e74c3c"
+                    w.setStyleSheet(f"QPushButton {{ padding: 12px 20px; border: 2px solid {color}; border-radius: 8px; background: {color}22; color: {color}; font-size: 14px; }}")
+
+        self.quiz_feedback.show()
+        if is_correct:
+            self.quiz_feedback.setText("✅ 正确！")
+            self.quiz_feedback.setStyleSheet("font-size: 16px; font-weight: bold; color: #27ae60;")
+            self._record_and_advance("good")
+        else:
+            self.quiz_feedback.setText(f"❌ 正确答案: {self.current_word_data.get('translation', '')}")
+            self.quiz_feedback.setStyleSheet("font-size: 16px; font-weight: bold; color: #e74c3c;")
+            self._record_and_advance("again")
+
+        # 2 秒后下一题
+        QTimer.singleShot(2000, self._load_next_card)
+
+    # --- 拼写模式 ---
+    def _show_spell_mode(self):
+        self.content_stack.setCurrentIndex(2)
+        d = self.current_word_data
+        self.spell_hint.setText(d.get('translation', '暂无释义'))
+        self.spell_input.setText("")
+        self.spell_input.show()
+        self.spell_submit_btn.show()
+        self.spell_result.hide()
+        self.spell_input.setFocus()
+        # 自动播放发音
+        if self.tts and self.tts.available:
+            self.tts.speak(self.current_word)
+
+    def _on_spell_submit(self):
+        user_input = self.spell_input.text().strip().lower()
+        correct = self.current_word.lower()
+        if not user_input:
             return
 
-        # 获取当前状态
-        user_word = self.database.get_or_create_user_word(self.current_word)
-        fsrs_state = FSRSState.from_json(user_word.get('fsrs_state'))
+        self.spell_result.show()
+        if user_input == correct:
+            self.spell_result.setText("✅ 完全正确！")
+            self.spell_result.setStyleSheet("font-size: 18px; color: #27ae60; font-weight: bold;")
+            self._record_and_advance("good")
+            QTimer.singleShot(1500, self._load_next_card)
+        else:
+            # 逐字母对比
+            html = self._build_spell_comparison(user_input, correct)
+            self.spell_result.setText(html)
+            self.spell_result.setStyleSheet("font-size: 20px; font-weight: bold; letter-spacing: 2px;")
+            self._record_and_advance("again")
+            QTimer.singleShot(2500, self._load_next_card)
 
-        # 执行 FSRS 算法
-        new_state, due_date = self.fsrs.review(fsrs_state, rating)
+    def _build_spell_comparison(self, user_input, correct):
+        """构建逐字母对比 HTML"""
+        result = []
+        max_len = max(len(user_input), len(correct))
+        for i in range(max_len):
+            if i < len(user_input) and i < len(correct):
+                if user_input[i] == correct[i]:
+                    result.append(f'<span style="color:#27ae60">{user_input[i]}</span>')
+                else:
+                    result.append(f'<span style="color:#e74c3c;text-decoration:underline">{user_input[i] if i < len(user_input) else "_"}</span>')
+            elif i < len(correct):
+                result.append(f'<span style="color:#e74c3c">_{correct[i]}</span>')
+        return "你的答案: " + "".join(result) + f"<br><span style='color:#7f8c8d;font-size:14px'>正确: {correct}</span>"
 
-        # 更新数据库
-        status = 'learning' if new_state.state in [1, 3] else 'review'
-        self.database.update_user_word(
-            self.current_word,
-            status=status,
-            fsrs_state=new_state.to_json(),
-            due_date=due_date.isoformat()
-        )
-
-        # 记录学习
-        self.database.add_study_record(self.current_word, 'review', rating)
-
-        # 更新统计
-        is_new = user_word.get('status') == 'new'
-        self.database.update_daily_stats(
-            new_words=1 if is_new else 0,
-            review_words=0 if is_new else 1,
-            correct_count=1 if rating != 'again' else 0,
-            total_count=1
-        )
-
-        # 加载下一张
+    # --- 通用方法 ---
+    def _on_rating(self, rating):
+        if not self.current_word:
+            return
+        self._record_and_advance(rating)
         self._load_next_card()
 
+    def _record_and_advance(self, rating):
+        """统一记录学习并更新 FSRS"""
+        if not self.current_word:
+            return
+        user_word = self.database.get_or_create_user_word(self.current_word)
+        fsrs_state = FSRSState.from_json(user_word.get('fsrs_state'))
+        new_state, due_date = self.fsrs.review(fsrs_state, rating)
+        status = 'learning' if new_state.state in [1, 3] else 'review'
+        self.database.update_user_word(self.current_word, status=status, fsrs_state=new_state.to_json(), due_date=due_date.isoformat())
+        self.database.add_study_record(self.current_word, 'review', rating)
+        is_new = user_word.get('status') == 'new'
+        self.database.update_daily_stats(new_words=1 if is_new else 0, review_words=0 if is_new else 1, correct_count=1 if rating != 'again' else 0, total_count=1)
+
     def _update_progress(self):
-        """更新进度显示"""
         stats = self.database.get_daily_stats()
         due_count = len(self.database.get_due_words(limit=100))
         self.progress_label.setText(f"今日新词: {stats['new_words']} | 待复习: {due_count}")
@@ -1069,7 +1432,8 @@ class MainWindow(QMainWindow):
         self.stack.addWidget(self.dict_page)
 
         # 页面4: 单词学习
-        self.study_page = StudyPage(self.dictionary, self.database)
+        self.tts = TTSEngine()
+        self.study_page = StudyPage(self.dictionary, self.database, self.tts)
         self.stack.addWidget(self.study_page)
 
         # 页面5: 听写练习
