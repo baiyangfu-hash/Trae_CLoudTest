@@ -352,6 +352,131 @@ def test_asr_engine(runner):
     runner.test("ASR 引擎 (asr_engine.py)", _test)
 
 
+def test_cefr_tagger(runner):
+    """测试 CEFR 标注模块"""
+    def _test():
+        from cefr_tagger import CEFRTagger, CEFR_LEVELS, CEFRPY_AVAILABLE
+        
+        print(f"  cefrpy 可用: {CEFRPY_AVAILABLE}")
+        assert len(CEFR_LEVELS) == 6, "应有6个CEFR等级"
+        assert 'A1' in CEFR_LEVELS
+        assert 'C2' in CEFR_LEVELS
+        print(f"  CEFR 等级: {list(CEFR_LEVELS.keys())}")
+        
+        # 测试标注器
+        tagger = CEFRTagger()
+        if tagger.available:
+            # 测试查询
+            level = str(tagger.get_level('breakfast'))
+            assert level == 'A1', f"breakfast 应为 A1, 得到: {level}"
+            print(f"  breakfast: {level}")
+            
+            level2 = str(tagger.get_level('reservation'))
+            assert level2 == 'B1', f"reservation 应为 B1, 得到: {level2}"
+            print(f"  reservation: {level2}")
+            
+            # 测试不在数据库中的词
+            level3 = tagger.get_level('xyzasdfqwer')
+            assert level3 is None, "不存在的词应返回 None"
+            print(f"  不存在词: {level3}")
+            
+            # 测试 is_known
+            assert tagger.is_known('hello') is False, "hello 不在 cefrpy 数据库"
+            assert tagger.is_known('breakfast') is True
+            print(f"  is_known: OK")
+        else:
+            print(f"  cefrpy 未安装，跳过标注测试")
+    runner.test("CEFR 标注 (cefr_tagger.py)", _test)
+
+
+def test_grammar_engine(runner):
+    """测试语法课程引擎"""
+    def _test():
+        from grammar_engine import GrammarEngine, GRAMMAR_POINTS
+        
+        # 验证数据
+        assert len(GRAMMAR_POINTS['A1']) == 34, f"A1 应有34个语法点，实际: {len(GRAMMAR_POINTS['A1'])}"
+        assert len(GRAMMAR_POINTS['A2']) == 37, f"A2 应有37个语法点"
+        assert len(GRAMMAR_POINTS['B1']) == 42, f"B1 应有42个语法点"
+        print(f"  语法点总数: A1={len(GRAMMAR_POINTS['A1'])}, A2={len(GRAMMAR_POINTS['A2'])}, B1={len(GRAMMAR_POINTS['B1'])}")
+        
+        # 测试引擎
+        engine = GrammarEngine()
+        levels = engine.get_all_levels()
+        assert len(levels) == 3, f"应有3个等级，实际: {len(levels)}"
+        print(f"  等级: {[l['level'] for l in levels]}")
+        
+        # 获取 A1 语法点
+        a1_points = engine.get_points_by_level('A1')
+        assert len(a1_points) == 34, f"A1 应有34个语法点，实际: {len(a1_points)}"
+        assert 'name' in a1_points[0]
+        assert 'examples' in a1_points[0]
+        assert isinstance(a1_points[0]['examples'], list)
+        print(f"  A1 第一个语法点: {a1_points[0]['name']}")
+        print(f"  A1 例句: {a1_points[0]['examples'][:2]}")
+        
+        # 获取分类
+        categories = engine.get_categories_by_level('A1')
+        assert len(categories) > 0, "A1 应有语法分类"
+        print(f"  A1 分类数: {len(categories)}")
+        print(f"  第一个分类: {categories[0]['name']} ({categories[0]['count']}个)")
+        
+        # 按 ID 获取
+        point = engine.get_point_by_id(1)
+        assert point is not None, "应能获取语法点"
+        assert point['name'] == a1_points[0]['name']
+        print(f"  按ID获取: {point['name']}")
+    runner.test("语法课程引擎 (grammar_engine.py)", _test)
+
+
+def test_course_manager(runner):
+    """测试课程管理模块"""
+    def _test():
+        from course_manager import CourseManager, init_course_system
+        
+        mgr = CourseManager()
+        
+        # 测试等级信息
+        levels = mgr.get_levels()
+        assert len(levels) == 6, f"应有6个CEFR等级，实际: {len(levels)}"
+        print(f"  CEFR 等级: {[l['level'] for l in levels]}")
+        
+        # 测试用户进度
+        progress = mgr.get_user_progress()
+        assert 'current_level' in progress
+        assert progress['current_level'] == 'A1'
+        assert progress['target_level'] == 'B1'
+        print(f"  当前等级: {progress['current_level']} → {progress['target_level']}")
+        print(f"  词汇进度: {progress['vocab_mastered']}/{progress['vocab_target']} ({progress['vocab_percent']}%)")
+        
+        # 测试每日计划
+        plan = mgr.get_daily_plan()
+        assert 'tasks' in plan
+        assert len(plan['tasks']) == 5, f"应有5个每日任务，实际: {len(plan['tasks'])}"
+        print(f"  每日计划: {len(plan['tasks'])} 个任务, 预计 {plan['estimated_minutes']} 分钟")
+        for task in plan['tasks']:
+            print(f"    - {task['icon']} {task['title']}: {task['target']}")
+        
+        # 测试学习路线图
+        roadmap = mgr.get_6month_roadmap()
+        assert 'phase1' in roadmap
+        assert 'phase2' in roadmap
+        assert len(roadmap['phase1']['months_detail']) == 3
+        assert len(roadmap['phase2']['months_detail']) == 3
+        print(f"  学习路线图: 2个阶段, 6个月")
+        
+        # 测试词汇统计
+        vocab_stats = mgr.get_vocab_stats_by_level()
+        print(f"  词汇统计: {vocab_stats}")
+        
+        # 测试更新进度
+        mgr.update_study_progress(vocab_count=5, grammar_count=1)
+        progress2 = mgr.get_user_progress()
+        assert progress2['vocab_mastered'] >= 5, f"词汇进度应更新"
+        print(f"  更新后进度: vocab={progress2['vocab_mastered']}, grammar={progress2['grammar_completed']}")
+    runner.test("课程管理 (course_manager.py)", _test)
+
+
 def test_main_import(runner):
     """测试主程序导入（不启动GUI）"""
     def _test():
@@ -362,19 +487,17 @@ def test_main_import(runner):
             print(f"  PySide6 版本: {PySide6.__version__}")
             print(f"  主程序导入检查: OK (不启动GUI)")
         except ImportError as e:
-            # 云端环境缺少 libEGL，这是预期的
             print(f"  PySide6 导入跳过（云端环境缺少 libEGL，Windows 上正常）: {e}")
     runner.test("主程序导入 (main.py)", _test)
 
 
 if __name__ == '__main__':
     runner = TestRunner()
-    
+
     print("=" * 60)
     print("英语学习助手 - 全模块测试")
     print("=" * 60)
-    
-    # 按依赖顺序测试
+
     test_imports(runner)
     test_dictionary(runner)
     test_database(runner)
@@ -384,11 +507,12 @@ if __name__ == '__main__':
     test_us_travel_dialogs(runner)
     test_tts_engine(runner)
     test_asr_engine(runner)
+    test_cefr_tagger(runner)
+    test_grammar_engine(runner)
+    test_course_manager(runner)
     test_main_import(runner)
-    
+
     success = runner.summary()
-    
-    # 将结果写入文件
     report_path = os.path.join(os.path.dirname(__file__), 'data', 'test_report.txt')
     os.makedirs(os.path.dirname(report_path), exist_ok=True)
     with open(report_path, 'w', encoding='utf-8') as f:

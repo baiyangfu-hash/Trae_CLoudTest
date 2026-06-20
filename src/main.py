@@ -21,6 +21,7 @@ from dictation_page import DictationPage
 from us_travel_dialogs import get_all_us_dialogs, get_us_dialog
 from roleplay_page import RolePlayPage
 from dialog_importer import DialogImporter, ImportError as DialogImportError
+from course_page import CoursePage
 
 class WordCard(QFrame):
     """单词卡片组件"""
@@ -1007,12 +1008,13 @@ class MainWindow(QMainWindow):
         # 导航按钮
         self.nav_buttons = []
         nav_items = [
-            ("📚 情景对话", 0),
-            ("🔍 词典查询", 1),
-            ("📝 单词学习", 2),
-            ("🎧 听写练习", 3),
-            ("🎭 角色扮演", 4),
-            ("📊 学习统计", 5),
+            ("📋 课程大纲", 0),
+            ("📚 情景对话", 1),
+            ("🔍 词典查询", 2),
+            ("📝 单词学习", 3),
+            ("🎧 听写练习", 4),
+            ("🎭 角色扮演", 5),
+            ("📊 学习统计", 6),
         ]
 
         for text, index in nav_items:
@@ -1043,7 +1045,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addStretch()
 
         # 版本信息
-        version = QLabel("v1.0.0")
+        version = QLabel("v1.5.0")
         version.setStyleSheet("color: #7f8c8d; font-size: 11px; padding: 8px;")
         version.setAlignment(Qt.AlignCenter)
         sidebar_layout.addWidget(version)
@@ -1054,27 +1056,31 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
         self.stack.setStyleSheet("background-color: #f0f2f5;")
 
-        # 页面1: 情景对话
+        # 页面1: 课程大纲
+        self.course_page = CoursePage()
+        self.stack.addWidget(self.course_page)
+
+        # 页面2: 情景对话
         self.dialog_page = DialogPage(self.dictionary)
         self.stack.addWidget(self.dialog_page)
 
-        # 页面2: 词典查询
+        # 页面3: 词典查询
         self.dict_page = DictionaryPage(self.dictionary)
         self.stack.addWidget(self.dict_page)
 
-        # 页面3: 单词学习
+        # 页面4: 单词学习
         self.study_page = StudyPage(self.dictionary, self.database)
         self.stack.addWidget(self.study_page)
 
-        # 页面4: 听写练习
+        # 页面5: 听写练习
         self.dictation_page = DictationPage(self.dictionary, self.database)
         self.stack.addWidget(self.dictation_page)
 
-        # 页面5: 角色扮演
+        # 页面6: 角色扮演
         self.roleplay_page = RolePlayPage(self.dictionary, self.database)
         self.stack.addWidget(self.roleplay_page)
 
-        # 页面6: 学习统计
+        # 页面7: 学习统计
         self.stats_page = StatsPage(self.database)
         self.stack.addWidget(self.stats_page)
 
