@@ -24,6 +24,7 @@ from us_travel_dialogs import get_all_us_dialogs, get_us_dialog
 from roleplay_page import RolePlayPage
 from dialog_importer import DialogImporter, ImportError as DialogImportError
 from course_page import CoursePage
+from grammar_practice_page import GrammarPracticePage
 
 class WordCard(QFrame):
     """单词卡片组件"""
@@ -1376,8 +1377,9 @@ class MainWindow(QMainWindow):
             ("🔍 词典查询", 2),
             ("📝 单词学习", 3),
             ("🎧 听写练习", 4),
-            ("🎭 角色扮演", 5),
-            ("📊 学习统计", 6),
+            ("📖 语法练习", 5),
+            ("🎭 角色扮演", 6),
+            ("📊 学习统计", 7),
         ]
 
         for text, index in nav_items:
@@ -1444,7 +1446,11 @@ class MainWindow(QMainWindow):
         self.roleplay_page = RolePlayPage(self.dictionary, self.database)
         self.stack.addWidget(self.roleplay_page)
 
-        # 页面7: 学习统计
+        # 页面7: 语法练习
+        self.grammar_practice_page = GrammarPracticePage()
+        self.stack.addWidget(self.grammar_practice_page)
+
+        # 页面8: 学习统计
         self.stats_page = StatsPage(self.database)
         self.stack.addWidget(self.stats_page)
 
