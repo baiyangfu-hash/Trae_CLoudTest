@@ -25,6 +25,8 @@ from roleplay_page import RolePlayPage
 from dialog_importer import DialogImporter, ImportError as DialogImportError
 from course_page import CoursePage
 from grammar_practice_page import GrammarPracticePage
+from level_test_page import LevelTestPage
+from study_tracker import StudyTracker
 
 class WordCard(QFrame):
     """单词卡片组件"""
@@ -1409,8 +1411,29 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch()
 
+        # 激励信息栏
+        self.motivation_frame = QFrame()
+        self.motivation_frame.setStyleSheet("QFrame { background: #f0f7ff; border-radius: 8px; margin: 8px; padding: 10px; }")
+        mot_layout = QVBoxLayout(self.motivation_frame)
+        mot_layout.setSpacing(4)
+        mot_layout.setContentsMargins(10, 8, 10, 8)
+
+        self.points_label = QLabel("⭐ 今日积分: 0")
+        self.points_label.setStyleSheet("font-size: 12px; color: #2c3e50; font-weight: bold;")
+        mot_layout.addWidget(self.points_label)
+
+        self.streak_label = QLabel("🔥 连续学习: 0 天")
+        self.streak_label.setStyleSheet("font-size: 12px; color: #e67e22;")
+        mot_layout.addWidget(self.streak_label)
+
+        self.badge_count_label = QLabel("🏅 徽章: 0/14")
+        self.badge_count_label.setStyleSheet("font-size: 12px; color: #9b59b6;")
+        mot_layout.addWidget(self.badge_count_label)
+
+        sidebar_layout.addWidget(self.motivation_frame)
+
         # 版本信息
-        version = QLabel("v1.5.0")
+        version = QLabel("v1.6.0")
         version.setStyleSheet("color: #7f8c8d; font-size: 11px; padding: 8px;")
         version.setAlignment(Qt.AlignCenter)
         sidebar_layout.addWidget(version)
@@ -1435,6 +1458,7 @@ class MainWindow(QMainWindow):
 
         # 页面4: 单词学习
         self.tts = TTSEngine()
+        self.study_tracker = StudyTracker()
         self.study_page = StudyPage(self.dictionary, self.database, self.tts)
         self.stack.addWidget(self.study_page)
 
@@ -1464,6 +1488,19 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(index)
         for i, btn in enumerate(self.nav_buttons):
             btn.setChecked(i == index)
+        self._refresh_motivation()
+
+    def _refresh_motivation(self):
+        """刷新激励信息"""
+        try:
+            today_pts = self.study_tracker.get_today_points()
+            streak = self.study_tracker.get_streak_days()
+            badges = self.study_tracker.get_earned_badges()
+            self.points_label.setText(f"⭐ 今日积分: {today_pts}")
+            self.streak_label.setText(f"🔥 连续学习: {streak} 天")
+            self.badge_count_label.setText(f"🏅 徽章: {len(badges)}/14")
+        except Exception:
+            pass
 
     def closeEvent(self, event):
         """关闭时清理资源"""
