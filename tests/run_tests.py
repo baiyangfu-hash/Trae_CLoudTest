@@ -491,6 +491,207 @@ def test_main_import(runner):
     runner.test("主程序导入 (main.py)", _test)
 
 
+class _DbSandbox:
+    """复制 app.db 做现场保护，测试结束后恢复"""
+    def __enter__(self):
+        import shutil, tempfile
+        self.db = os.path.join(os.path.dirname(__file__), '..', 'data', 'app.db')
+        self.settings = os.path.join(os.path.dirname(__file__), '..', 'data', 'settings.json')
+        self.tmp = tempfile.mkdtemp()
+        self.backup = os.path.join(self.tmp, 'app.db')
+        self.had_db = os.path.exists(self.db)
+        if self.had_db:
+            shutil.copy(self.db, self.backup)
+        self.sbackup = os.path.join(self.tmp, 'settings.json')
+        self.had_settings = os.path.exists(self.settings)
+        if self.had_settings:
+            shutil.copy(self.settings, self.sbackup)
+        return self
+
+    def __exit__(self, *exc):
+        import shutil
+        if self.had_db:
+            shutil.copy(self.backup, self.db)
+        if self.had_settings:
+            shutil.copy(self.sbackup, self.settings)
+        elif os.path.exists(self.settings):
+            os.remove(self.settings)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+
+def test_settings(runner):
+    """测试 A1/A2 折叠设置"""
+    def _test():
+        import settings
+        with _DbSandbox():
+            settings.set('hide_basic_levels', False)
+            assert settings.hidden_levels() == []
+            assert not settings.is_hidden('A1')
+            settings.set('hide_basic_levels', True)
+            assert settings.hidden_levels() == ['A1', 'A2']
+            assert settings.is_hidden('A2') and not settings.is_hidden('B1')
+            settings.set('hide_basic_levels', False)
+            assert settings.hidden_levels() == []
+            print("  折叠开关读写: OK")
+    runner.test("设置 (settings.py)", _test)
+
+
+def test_review_bank(runner):
+    """测试扩充题库格式"""
+    def _test():
+        from review_bank import SCENE_QUESTIONS, get_scene_questions
+        assert len(SCENE_QUESTIONS) >= 30
+        for q in SCENE_QUESTIONS:
+            assert q['level'] in ('A1', 'A2', 'B1'), q
+            assert q['answer'] in q['options'], q['question']
+            assert len(set(q['options'])) == len(q['options']), q['question']
+            assert len(q['options']) >= 3
+        assert all(q['level'] == 'A1' for q in get_scene_questions(['A1']))
+        questions = [q['question'] for q in SCENE_QUESTIONS]
+        assert len(questions) == len(set(questions)), "题目有重复"
+        print(f"  场景题 {len(SCENE_QUESTIONS)} 道，格式/答案/重复检查: OK")
+    runner.test("复习题库 (review_bank.py)", _test)
+
+
+def test_review_engine(runner):
+    """测试复习引擎：到期队列、错题本、抽测、成绩记录"""
+    def _test():
+        import random
+        from datetime import datetime, timedelta
+        from database import Database
+        from dictionary import Dictionary
+        from review_center import ReviewEngine
+        with _DbSandbox():
+            db = Database()
+            dic = Dictionary()
+            eng = ReviewEngine(db, dic, rng=random.Random(1))
+            try:
+                words = ['apple', 'water', 'house', 'because', 'decide', 'borrow']
+                for w in words:
+                    eng.rate(w, 'good')
+                counts = eng.learned_counts()
+                assert counts['total'] >= len(words), counts
+                assert counts['A1'] + counts['A2'] + counts['other'] == counts['total']
+
+                past = (datetime.now() - timedelta(days=1)).isoformat()
+                for w in words[:3]:
+                    db.update_user_word(w, due_date=past)
+                due_all = eng.due_words()
+                assert set(words[:3]) <= set(due_all), due_all
+                assert not (set(words[3:]) & set(due_all))
+                dc = eng.due_counts()
+                assert dc['total'] == len(eng.due_words(limit=100000))
+                basic = eng.due_words(groups=('A1', 'A2'))
+                assert all(eng.group_of(w) in ('A1', 'A2') for w in basic)
+
+                eng.rate('borrow', 'again')
+                assert 'borrow' in eng.mistake_words()
+                eng.rate('borrow', 'good')
+                assert 'borrow' not in eng.mistake_words()
+                print("  到期队列/错题本: OK")
+
+                qs = eng.build_spot_check(('A1', 'A2'), 10)
+                assert 8 <= len(qs) <= 10, len(qs)
+                assert len({q['question'] for q in qs}) == len(qs)
+                for q in qs:
+                    assert q['answer'] in q['options'], q
+                    assert q['level'] in ('A1', 'A2')
+                assert eng.build_spot_check(('A1',), 6)
+                print(f"  抽测题生成 {len(qs)} 道: OK")
+
+                results = [{'level': 'A1', 'correct': True}, {'level': 'A2', 'correct': False},
+                           {'level': 'A2', 'correct': True}]
+                score = eng.record_check('测试', results)
+                assert score == 2
+                hist = eng.check_history()
+                assert hist and hist[0]['score'] == 2 and hist[0]['total'] == 3
+                acc = eng.level_accuracy()
+                rate, n = acc['A2']
+                assert abs(rate - 0.5) < 1e-6 and n == 2, acc
+                assert eng.days_since_check() == 0
+                assert isinstance(eng.suggestion(), str) and eng.suggestion()
+                print("  成绩记录/历史/建议: OK")
+            finally:
+                db.close()
+                dic.close()
+    runner.test("复习引擎 (review_center.py)", _test)
+
+
+def test_review_gui(runner):
+    """离屏测试复习中心页面、折叠开关和主窗口跳转"""
+    def _test():
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        try:
+            from PySide6.QtWidgets import QApplication
+        except ImportError as e:
+            print(f"  跳过（无 PySide6）: {e}")
+            return
+        import settings
+        with _DbSandbox():
+            app = QApplication.instance() or QApplication([])
+            from main import MainWindow
+            w = MainWindow()
+            try:
+                assert w.stack.count() == 10
+                assert w.go_to_page('review_page')
+                assert w.stack.currentWidget() is w.review_page
+                assert not w.go_to_page('no_such_page')
+                rp = w.review_page
+
+                for word in ['apple', 'water', 'house']:
+                    rp.engine.rate(word, 'again')
+                rp.show_dashboard()
+                rp.start_mistake_review()
+                assert rp.stack.currentIndex() == 1
+                first = rp.session_words[0]
+                rp.recall_input.setText(first)
+                rp._on_recall_submit()
+                assert rp.session_waiting_next and rp.session_right == 1
+                rp._recall_next()
+                rp._on_recall_reveal()
+                assert len(rp.session_wrong) == 1
+                rp._recall_next()
+                if rp.stack.currentIndex() == 1:
+                    rp._on_recall_reveal()
+                    rp._recall_next()
+                assert rp.stack.currentIndex() == 3
+                print("  拼写回忆流程: OK")
+
+                rp.start_spot_check(('A1', 'A2'), 6, 'A1/A2 抽测')
+                assert rp.stack.currentIndex() == 2
+                for _ in range(len(rp.questions)):
+                    q = rp.questions[rp.q_index]
+                    btn = next(b for b in rp.quiz_buttons if b.text() == q['answer'])
+                    rp._on_quiz_answer(btn)
+                    rp._quiz_next()
+                assert rp.stack.currentIndex() == 3
+                assert '得分' in rp.result_body.text()
+                assert rp.engine.check_history()
+                print("  抽测流程: OK")
+
+                rp.hide_box.setChecked(True)
+                assert settings.hidden_levels() == ['A1', 'A2']
+                vis = {lv: not b.isHidden() for b, lv in w.study_page.cefr_buttons}
+                assert vis == {'出差': True, 'A1': False, 'A2': False, 'B1': True}, vis
+                assert w.study_page.current_cefr not in ('A1', 'A2')
+                w.study_page._on_cefr_tab('B1')
+                rp.hide_box.setChecked(False)
+                vis = {lv: not b.isHidden() for b, lv in w.study_page.cefr_buttons}
+                assert all(vis.values()), vis
+                print("  折叠/展开联动单词学习: OK")
+
+                settings.set('hide_basic_levels', True)
+                w.course_page.apply_level_visibility()
+                w.go_to_page('course_page')
+                w.course_page.refresh()
+                settings.set('hide_basic_levels', False)
+                w.course_page.apply_level_visibility()
+                print("  课程页折叠: OK")
+            finally:
+                w.close()
+    runner.test("复习中心 GUI (离屏)", _test)
+
+
 if __name__ == '__main__':
     runner = TestRunner()
 
@@ -511,6 +712,10 @@ if __name__ == '__main__':
     test_grammar_engine(runner)
     test_course_manager(runner)
     test_main_import(runner)
+    test_settings(runner)
+    test_review_bank(runner)
+    test_review_engine(runner)
+    test_review_gui(runner)
 
     success = runner.summary()
     report_path = os.path.join(os.path.dirname(__file__), 'data', 'test_report.txt')

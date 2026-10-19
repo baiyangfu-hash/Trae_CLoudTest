@@ -28,6 +28,8 @@ from us_travel_dialogs import get_all_us_dialogs, get_us_dialog
 from roleplay_page import RolePlayPage
 from dialog_importer import DialogImporter, ImportError as DialogImportError
 from course_page import CoursePage
+from review_center import ReviewPage
+import settings
 from grammar_practice_page import GrammarPracticePage
 from level_test_page import LevelTestPage
 from study_tracker import get_tracker, BADGES
@@ -985,6 +987,14 @@ class StudyPage(QWidget):
         return line
 
     # --- CEFR / Mode 切换 ---
+    def apply_level_visibility(self):
+        """A1/A2 折叠：隐藏对应标签页，不影响复习中心"""
+        hidden = settings.hidden_levels()
+        for btn, lv in self.cefr_buttons:
+            btn.setVisible(lv not in hidden)
+        if self.current_cefr in hidden:
+            self._on_cefr_tab("出差")
+
     def _on_cefr_tab(self, level):
         self.current_cefr = level
         for btn, lv in self.cefr_buttons:
@@ -1586,10 +1596,12 @@ class MainWindow(QMainWindow):
         self.roleplay_page = RolePlayPage(self.dictionary, self.database, tts=self.tts)
         self.grammar_practice_page = GrammarPracticePage()
         self.stats_page = StatsPage(self.database)
+        self.review_page = ReviewPage(self.dictionary, self.database, self.tts)
 
         pages = [
             ("🎯 入级测试", self.level_test_page),
             ("📋 课程大纲", self.course_page),
+            ("🔁 复习中心", self.review_page),
             ("🎭 角色扮演", self.roleplay_page),
             ("📚 情景对话", self.dialog_page),
             ("📝 单词学习", self.study_page),
@@ -1650,7 +1662,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self.motivation_frame)
 
         # 版本信息
-        version = QLabel("v1.6.0")
+        version = QLabel("v1.7.0")
         version.setStyleSheet("color: #7f8c8d; font-size: 11px; padding: 8px;")
         version.setAlignment(Qt.AlignCenter)
         sidebar_layout.addWidget(version)
@@ -1666,9 +1678,13 @@ class MainWindow(QMainWindow):
 
         layout.addWidget(self.stack)
 
-        default_index = 2
+        self._pages = [p for _, p in pages]
+        default_index = self._pages.index(self.roleplay_page)
         self.stack.setCurrentIndex(default_index)
         self.nav_buttons[default_index].setChecked(True)
+
+        self.study_page.apply_level_visibility()
+        self.course_page.apply_level_visibility()
 
         self._motivation_timer = QTimer(self)
         self._motivation_timer.timeout.connect(self._refresh_motivation)
@@ -1680,7 +1696,26 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(index)
         for i, btn in enumerate(self.nav_buttons):
             btn.setChecked(i == index)
+        page = self.stack.widget(index)
+        if page is self.review_page:
+            self.review_page.show_dashboard()
+        elif page is self.course_page:
+            try:
+                self.course_page.refresh()
+            except Exception:
+                pass
         self._refresh_motivation()
+
+    def go_to_page(self, page_attr):
+        """按属性名跳转页面（如 'review_page'）"""
+        page = getattr(self, page_attr, None)
+        if page is None:
+            return False
+        idx = self.stack.indexOf(page)
+        if idx < 0:
+            return False
+        self._switch_page(idx)
+        return True
 
     def _refresh_motivation(self):
         """刷新激励信息"""
