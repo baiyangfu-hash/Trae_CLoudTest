@@ -11,6 +11,7 @@ from PySide6.QtCore import Qt, QTimer
 
 from grammar_practice import GrammarPracticeEngine
 from grammar_engine import GrammarEngine
+from study_tracker import get_tracker
 
 
 class GrammarPracticePage(QWidget):
@@ -440,6 +441,7 @@ class GrammarPracticePage(QWidget):
         self.feedback_label.show()
         if is_correct:
             self.score += 1
+            get_tracker().record('correct_answer')
             self.feedback_label.setText("✅ 正确！")
             self.feedback_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #27ae60;")
         else:
@@ -473,6 +475,8 @@ class GrammarPracticePage(QWidget):
             self.result_icon.setText("💪")
             self.result_title.setText("继续加油！")
 
+        if pct >= 60:
+            get_tracker().record('grammar_point')
         self.result_score.setText(f"正确率: {self.score}/{total} ({pct}%)")
         self.result_detail.setText(f"语法点: {self.current_point['name']}\n建议: {'已掌握，可以进入下一个' if pct >= 80 else '建议复习后再练习'}")
 

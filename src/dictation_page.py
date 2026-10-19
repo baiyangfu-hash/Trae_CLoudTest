@@ -9,8 +9,11 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
+import re
+
 from tts_engine import TTSEngine
 from fsrs_engine import FSRSEngine, FSRSState
+from study_tracker import get_tracker
 
 
 class DictationPage(QWidget):
@@ -22,11 +25,11 @@ class DictationPage(QWidget):
         ("dialog", "对话听写"),
     ]
     
-    def __init__(self, dictionary, database, parent=None):
+    def __init__(self, dictionary, database, parent=None, tts=None):
         super().__init__(parent)
         self.dictionary = dictionary
         self.database = database
-        self.tts = TTSEngine()
+        self.tts = tts or TTSEngine()
         self.fsrs = FSRSEngine()
         
         self.current_mode = "word"
@@ -338,29 +341,62 @@ class DictationPage(QWidget):
         
         self._load_question()
     
+    @staticmethod
+    def _all_dialog_lines():
+        """基础对话 + 美国出差对话，按对话返回行列表"""
+        from dialogs_data import DIALOGS as BASE_DIALOGS
+        from us_travel_dialogs import DIALOGS as US_DIALOGS
+        result = []
+        for source in (BASE_DIALOGS, US_DIALOGS):
+            for dialog in source.values():
+                lines = []
+                for line in dialog.get("lines", []):
+                    text = re.sub(r"\s*[\(（][^\)）]*[\)）]", "", line.get("text", "")).strip()
+                    text = re.sub(r"\s*(\.{3}|…)\s*", " ", text).strip()
+                    if not text:
+                        continue
+                    translation = re.sub(r"\s*[\(（][^\)）]*[\)）]", "", line.get("translation", "")).strip()
+                    lines.append({"text": text, "translation": translation})
+                result.append((dialog.get("title", ""), lines))
+        return result
+
+    def _word_questions(self, count):
+        """单词题：优先出差实用词，不够再补常用词"""
+        import random
+        import travel_vocab
+        from dictionary import short_meaning
+        pool = random.sample(travel_vocab.get_all_words(), min(count, len(travel_vocab.get_all_words())))
+        questions = []
+        for word in pool:
+            entry = self.dictionary.lookup_one(word)
+            if not entry:
+                continue
+            phonetic = (entry.get("phonetic") or "").strip()
+            meaning = short_meaning(entry)
+            hint = " ".join(x for x in (f"/{phonetic}/" if phonetic else "", meaning) if x)
+            questions.append({"text": entry.get("word", word), "display": entry.get("word", word), "hint": hint})
+        if len(questions) < count:
+            for entry in self.dictionary.get_random_words(count - len(questions)):
+                phonetic = (entry.get("phonetic") or "").strip()
+                hint = " ".join(x for x in (f"/{phonetic}/" if phonetic else "", short_meaning(entry)) if x)
+                questions.append({"text": entry.get("word", ""), "display": entry.get("word", ""), "hint": hint})
+        return questions
+
     def _generate_questions(self):
         """生成听写题目"""
+        import random
         questions = []
-        
+
         if self.current_mode == "word":
-            # 单词模式：从词典取随机单词
-            words = self.dictionary.get_random_words(self.total_questions)
-            for w in words:
-                questions.append({
-                    "text": w.get("word", ""),
-                    "display": w.get("word", ""),
-                    "hint": f"/{w.get('phonetic', '')}/ {w.get('translation', '')}",
-                })
-        
+            questions = self._word_questions(self.total_questions)
+
         elif self.current_mode == "sentence":
-            # 句子模式：从对话中提取句子
-            from dialogs_data import DIALOGS
-            import random
             all_sentences = []
-            for dialog in DIALOGS.values():
-                for line in dialog.get("lines", []):
+            for _, lines in self._all_dialog_lines():
+                for line in lines:
                     text = line.get("text", "")
-                    if text and len(text.split()) >= 3:
+                    count = len(text.split())
+                    if text and 3 <= count <= 12:
                         all_sentences.append({
                             "text": text,
                             "display": text,
@@ -368,36 +404,26 @@ class DictationPage(QWidget):
                         })
             random.shuffle(all_sentences)
             questions = all_sentences[:self.total_questions]
-        
-        else:  # dialog
-            # 对话模式：连续 2-3 句
-            from dialogs_data import DIALOGS
-            import random
-            all_dialogs = []
-            for dialog in DIALOGS.values():
-                lines = dialog.get("lines", [])
+
+        else:
+            all_pairs = []
+            for title, lines in self._all_dialog_lines():
                 for i in range(len(lines) - 1):
-                    combined = lines[i]["text"] + " " + lines[i+1]["text"]
-                    all_dialogs.append({
-                        "text": combined,
-                        "display": combined,
-                        "hint": dialog.get("title", ""),
-                    })
-            random.shuffle(all_dialogs)
-            questions = all_dialogs[:self.total_questions]
-        
-        # 如果题目不够，用随机单词补齐
-        while len(questions) < self.total_questions:
-            words = self.dictionary.get_random_words(self.total_questions - len(questions))
-            for w in words:
-                questions.append({
-                    "text": w.get("word", ""),
-                    "display": w.get("word", ""),
-                    "hint": f"/{w.get('phonetic', '')}/",
-                })
-        
+                    combined = lines[i]["text"] + " " + lines[i + 1]["text"]
+                    if len(combined.split()) <= 16:
+                        all_pairs.append({
+                            "text": combined,
+                            "display": combined,
+                            "hint": f"{lines[i].get('translation', '')} {lines[i + 1].get('translation', '')}".strip() or title,
+                        })
+            random.shuffle(all_pairs)
+            questions = all_pairs[:self.total_questions]
+
+        if len(questions) < self.total_questions:
+            questions.extend(self._word_questions(self.total_questions - len(questions)))
+
         return questions
-    
+
     def _load_question(self):
         """加载当前题目"""
         if self.current_index >= len(self.questions):
@@ -458,6 +484,7 @@ class DictationPage(QWidget):
         # 更新统计
         if is_correct:
             self.correct_count += 1
+            get_tracker().record('correct_answer')
             self.input_field.setStyleSheet("""
                 QLineEdit {
                     padding: 12px 16px;
@@ -629,10 +656,10 @@ class DictationPage(QWidget):
             f"错误: {len(self.wrong_words)} 个"
         )
         
-        # 更新每日统计
         self.database.update_daily_stats(
             correct_count=self.correct_count,
             total_count=self.total_questions
         )
+        get_tracker().record('dictation')
         
         self.complete_panel.show()

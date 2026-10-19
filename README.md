@@ -59,7 +59,7 @@ src/
 ├── level_test_page.py       # 入级测试 UI
 ├── study_tracker.py         # 学习激励系统（积分/连胜/徽章）
 ├── dictionary.py            # 离线词典查询（ECDICT）
-├── database.py              # SQLite 数据库管理（9+ 张表）
+├── database.py              # SQLite 数据库管理
 ├── dialogs_data.py          # 基础情景对话数据（5 个）
 ├── us_travel_dialogs.py     # 美国出差场景对话数据（22 个）
 ├── dialog_importer.py       # 自定义对话导入器（JSON 格式）
@@ -69,11 +69,14 @@ src/
 ├── answer_matcher.py        # 多答案匹配引擎（3 策略匹配）
 ├── dictation_page.py        # 听写练习页面
 ├── roleplay_page.py         # 角色扮演页面
-└── study_page.py            # 单词学习页面（卡片/测验/拼写）
+├── travel_vocab.py          # 美国出差场景词汇（8 组 290 词，含中文语境释义和例句）
+└── main.py                  # 主窗口 + 单词学习/词典/情景对话页面
+scripts/
+└── build_common_dict.py     # 从 ECDICT 完整版生成精简词典
 tests/
 └── run_tests.py             # 全模块自动化测试（13 项，全部通过）
 data/
-├── ecdict.db                # 精简词典（~50MB）
+├── ecdict.db                # 精简词典（~9MB，3.1 万常用词，由 scripts/build_common_dict.py 生成）
 ├── ecdict_full.db           # 完整词典（~812MB，gitignored）
 └── app.db                   # 应用数据（用户词库/学习记录/统计）
 models/

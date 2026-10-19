@@ -48,8 +48,7 @@ class CEFRTagger:
         if not self._analyzer:
             return None
         try:
-            level = self._analyzer.get_average_word_level_CEFR(word)
-            return str(level) if level else None
+            return _to_level(self._analyzer.get_average_word_level_CEFR(word))
         except Exception:
             return None
 
@@ -101,20 +100,72 @@ class CEFRTagger:
             conn.close()
 
 
-def build_cefr_lexicon(limit: int = 5000, progress_callback=None):
+STOPWORDS = set('''the and for but not you are was were has had have his her him she they them their its our
+your this that these those with from into onto over under about than then there here what when where which who whom
+whose why how can could will would shall should may might must been being does did done doing any some such own
+same too very just also only both each few more most other another every either neither nor yet once ever never
+again because while until upon within without per via'''.split())
+
+
+def _to_level(value):
+    if value is None:
+        return None
+    text = str(value)
+    return text if text in CEFR_LEVELS else None
+
+
+def build_cefr_lexicon(limit: int = 0, progress_callback=None):
     """
-    从 ECDICT 构建 CEFR 词汇表
-    使用 cefrpy 批量标注单词等级，存入 vocab_cefr 表
+    从常用词词典构建 CEFR 词汇表（重建 vocab_cefr）
+    frequency_score 越大越常用：Collins 星级 + 词频排名
     """
     if not CEFRPY_AVAILABLE:
         return False, "cefrpy 未安装（pip install cefrpy）"
 
-    # 确定词典路径
     dict_path = ECDICT_PATH if os.path.exists(ECDICT_PATH) else FALLBACK_DICT_PATH
     if not os.path.exists(dict_path):
         return False, "词典数据库不存在"
 
-    # 确保 app.db 有 vocab_cefr 表
+    try:
+        analyzer = CEFRAnalyzer()
+    except Exception as e:
+        return False, f"cefrpy 初始化失败: {e}"
+
+    dict_conn = sqlite3.connect(dict_path)
+    dict_conn.row_factory = sqlite3.Row
+    rows = dict_conn.execute(
+        "SELECT word, pos, tag, collins, bnc, frq FROM stardict "
+        "WHERE word IS NOT NULL AND word != ''"
+    ).fetchall()
+    dict_conn.close()
+
+    def _int(v):
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return 0
+
+    batch = []
+    for i, row in enumerate(rows):
+        word = row['word']
+        if not word.isalpha() or not word.islower() or not 3 <= len(word) <= 20 or word in STOPWORDS:
+            continue
+        try:
+            level = _to_level(analyzer.get_average_word_level_CEFR(word))
+        except Exception:
+            level = None
+        if not level:
+            continue
+        frq = _int(row['frq'])
+        bnc = _int(row['bnc'])
+        rank = min(x for x in (frq, bnc, 30000) if x > 0)
+        score = _int(row['collins']) * 10 + (30000 - rank) / 600
+        batch.append((word, level, row['pos'] or '', round(score, 2), row['tag'] or ''))
+        if limit and len(batch) >= limit:
+            break
+        if progress_callback and i % 2000 == 0:
+            progress_callback(i, len(rows))
+
     app_conn = sqlite3.connect(DB_PATH)
     app_cursor = app_conn.cursor()
     app_cursor.execute('''
@@ -128,97 +179,25 @@ def build_cefr_lexicon(limit: int = 5000, progress_callback=None):
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
+    app_cursor.execute('DELETE FROM vocab_cefr')
+    app_cursor.execute('DROP INDEX IF EXISTS idx_vocab_cefr_word')
+    app_cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_vocab_cefr_word ON vocab_cefr(word)')
     app_cursor.execute('CREATE INDEX IF NOT EXISTS idx_vocab_cefr_level ON vocab_cefr(cefr_level)')
-    app_cursor.execute('CREATE INDEX IF NOT EXISTS idx_vocab_cefr_word ON vocab_cefr(word)')
+    app_cursor.executemany(
+        'INSERT OR IGNORE INTO vocab_cefr (word, cefr_level, pos_tag, frequency_score, topic) VALUES (?, ?, ?, ?, ?)',
+        batch
+    )
     app_conn.commit()
-
-    # 初始化 cefrpy
-    try:
-        analyzer = CEFRAnalyzer()
-    except Exception as e:
-        return False, f"cefrpy 初始化失败: {e}"
-
-    # 从 ECDICT 读取单词（优先高频词：collins 星级高的）
-    dict_conn = sqlite3.connect(dict_path)
-    dict_conn.row_factory = sqlite3.Row
-    dict_cursor = dict_conn.cursor()
-
-    try:
-        dict_cursor.execute(
-            '''SELECT word, sw, pos, tag, collins, bnc, frq 
-               FROM stardict 
-               WHERE word IS NOT NULL AND word != '' 
-               ORDER BY 
-                   CASE collins WHEN '' THEN 99 ELSE CAST(collins AS INTEGER) END ASC,
-                   CASE frq WHEN '' THEN 999999 ELSE CAST(frq AS INTEGER) END ASC
-               LIMIT ?''',
-            (limit,)
-        )
-    except Exception:
-        dict_cursor.execute(
-            'SELECT word, sw, pos, tag, collins, bnc, frq FROM stardict WHERE word IS NOT NULL AND word != "" LIMIT ?',
-            (limit,)
-        )
-
-    tagged_count = 0
-    batch = []
-    batch_size = 100
-
-    for row in dict_cursor:
-        word = row['word']
-        # 跳过太长的词（可能是短语）
-        if len(word) > 30 or ' ' in word:
-            continue
-
-        # 用 cefrpy 标注
-        try:
-            level = str(analyzer.get_average_word_level_CEFR(word))
-        except Exception:
-            level = None
-
-        if level:
-            pos_tag = row['pos'] or ''
-            tag = row['tag'] or ''
-            # 计算频率分数：collins 星数 + bnc/1000
-            freq_score = 0
-            try:
-                collins_val = int(row['collins']) if row['collins'] else 0
-                freq_score = (6 - collins_val) * 10  # 5星=50分, 1星=10分
-            except (ValueError, TypeError):
-                pass
-            try:
-                bnc_val = int(row['bnc']) if row['bnc'] else 0
-                freq_score += min(bnc_val / 100, 50)
-            except (ValueError, TypeError):
-                pass
-
-            batch.append((word, level, pos_tag, freq_score, tag))
-            tagged_count += 1
-
-        # 批量写入
-        if len(batch) >= batch_size:
-            app_cursor.executemany(
-                'INSERT OR IGNORE INTO vocab_cefr (word, cefr_level, pos_tag, frequency_score, topic) VALUES (?, ?, ?, ?, ?)',
-                batch
-            )
-            app_conn.commit()
-            batch = []
-
-        if progress_callback and tagged_count % 100 == 0:
-            progress_callback(tagged_count, limit)
-
-    # 写入剩余
-    if batch:
-        app_cursor.executemany(
-            'INSERT OR IGNORE INTO vocab_cefr (word, cefr_level, pos_tag, frequency_score, topic) VALUES (?, ?, ?, ?, ?)',
-            batch
-        )
-        app_conn.commit()
-
-    dict_conn.close()
     app_conn.close()
+    return True, f"已标注 {len(batch)} 个单词的 CEFR 等级"
 
-    return True, f"已标注 {tagged_count} 个单词的 CEFR 等级"
+
+def ensure_cefr_lexicon():
+    """vocab_cefr 为空时自动构建，返回是否可用"""
+    if sum(get_vocab_count_by_level().values()) > 0:
+        return True
+    ok, _ = build_cefr_lexicon()
+    return ok
 
 
 def get_vocab_count_by_level():

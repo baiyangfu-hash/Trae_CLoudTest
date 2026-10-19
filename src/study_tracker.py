@@ -231,22 +231,22 @@ class StudyTracker:
     def _evaluate_condition(self, condition, stats):
         """评估徽章条件"""
         try:
-            if ">=" in condition:
-                key, val = condition.split(">=")
-                key = key.strip()
-                val = int(val.strip())
-                return stats.get(key, 0) >= val
-            elif "==" in condition:
-                key, val = condition.split("==")
-                return str(stats.get(key.strip(), "")) == val.strip()
-            elif condition == "perfect_day":
-                return stats.get("perfect_day", False)
-            elif condition.startswith("level >="):
+            if condition == "perfect_day":
+                return bool(stats.get("perfect_day", False))
+            if condition.startswith("level >="):
                 level = condition.split(">=")[1].strip()
                 level_order = {"A1": 1, "A2": 2, "B1": 3, "B2": 4, "C1": 5}
                 current_order = level_order.get(stats.get("level", "A1"), 0)
                 target_order = level_order.get(level, 0)
                 return current_order >= target_order
+            if ">=" in condition:
+                key, val = condition.split(">=")
+                key = key.strip()
+                val = int(val.strip())
+                return stats.get(key, 0) >= val
+            if "==" in condition:
+                key, val = condition.split("==")
+                return str(stats.get(key.strip(), "")) == val.strip()
         except Exception:
             pass
         return False
@@ -294,6 +294,42 @@ class StudyTracker:
         finally:
             conn.close()
 
+    def collect_stats(self):
+        """从数据库汇总徽章判断所需的用户统计"""
+        stats = {"total_days": 0, "vocab_mastered": 0, "grammar_completed": 0,
+                 "study_minutes": 0, "perfect_day": False, "current_level": "A1"}
+        if not os.path.exists(DB_PATH):
+            return stats
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        try:
+            try:
+                cursor.execute('SELECT COUNT(DISTINCT date) FROM points_log')
+                stats["total_days"] = cursor.fetchone()[0] or 0
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("SELECT COUNT(*) FROM user_words WHERE status = 'review'")
+                stats["vocab_mastered"] = cursor.fetchone()[0] or 0
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute('SELECT COALESCE(SUM(grammar_completed), 0) FROM daily_summary')
+                stats["grammar_completed"] = cursor.fetchone()[0] or 0
+            except sqlite3.OperationalError:
+                pass
+        finally:
+            conn.close()
+        return stats
+
+    def record(self, action, count=1):
+        """加分并检查徽章，返回新获得的徽章列表"""
+        try:
+            self.add_points(action, count)
+            return self.check_and_award_badges(self.collect_stats())
+        except Exception:
+            return []
+
     def get_points_history(self, days=7):
         """获取最近 N 天的积分历史"""
         if not os.path.exists(DB_PATH):
@@ -314,3 +350,12 @@ class StudyTracker:
             return []
         finally:
             conn.close()
+
+_tracker = None
+
+
+def get_tracker():
+    global _tracker
+    if _tracker is None:
+        _tracker = StudyTracker()
+    return _tracker
