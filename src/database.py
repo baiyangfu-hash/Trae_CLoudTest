@@ -106,6 +106,12 @@ class Database:
         )
         return [dict(row) for row in self.cursor.fetchall()]
 
+    def get_user_word_states(self):
+        """返回 {单词: {status, due_date}}，用于选词"""
+        self.cursor.execute('SELECT word, status, due_date FROM user_words')
+        return {row['word']: {'status': row['status'], 'due_date': row['due_date']}
+                for row in self.cursor.fetchall()}
+
     def get_daily_stats(self, date=None):
         """获取每日统计"""
         if date is None:

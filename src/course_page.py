@@ -7,13 +7,28 @@ import os
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, QProgressBar, QTabWidget, QGridLayout,
-    QMessageBox, QListWidget, QTextEdit
+    QMessageBox, QListWidget, QListWidgetItem, QTextEdit
 )
 from PySide6.QtCore import Qt, QTimer
 
 from course_manager import CourseManager
 from cefr_tagger import CEFR_LEVELS, get_vocab_count_by_level, build_cefr_lexicon, CEFRPY_AVAILABLE
 from grammar_engine import GrammarEngine
+import settings
+
+GRAMMAR_LEVEL_ITEMS = [
+    ("A1", "A1 入门 (34个语法点)"),
+    ("A2", "A2 基础 (37个语法点)"),
+    ("B1", "B1 进阶 (42个语法点)"),
+]
+FOLD_KEY = "FOLD"
+TASK_TARGETS = {
+    'vocab_new': 'study_page',
+    'vocab_review': 'review_page',
+    'grammar': 'grammar_practice_page',
+    'dialog': 'dialog_page',
+    'dictation': 'dictation_page',
+}
 
 
 class CoursePage(QWidget):
@@ -23,6 +38,7 @@ class CoursePage(QWidget):
         super().__init__(parent)
         self.course_mgr = CourseManager()
         self.grammar_engine = GrammarEngine()
+        self._peek_basic = False
         self._setup_ui()
         # 延迟加载数据
         QTimer.singleShot(100, self._refresh_all)
@@ -312,9 +328,7 @@ class CoursePage(QWidget):
                 background-color: #e8f4fc;
             }
         """)
-        self.grammar_level_list.addItem("A1 入门 (34个语法点)")
-        self.grammar_level_list.addItem("A2 基础 (37个语法点)")
-        self.grammar_level_list.addItem("B1 进阶 (42个语法点)")
+        self._rebuild_grammar_levels()
         self.grammar_level_list.itemClicked.connect(self._on_grammar_level_selected)
         left_layout.addWidget(self.grammar_level_list)
 
@@ -396,17 +410,53 @@ class CoursePage(QWidget):
         self._refresh_overview()
         self._refresh_roadmap()
         self._refresh_vocab_stats()
-        # 默认选中 A1 语法
         if self.grammar_level_list.currentRow() < 0:
-            self.grammar_level_list.setCurrentRow(0)
-            self._on_grammar_level_selected(self.grammar_level_list.item(0))
+            self._select_first_grammar_level()
+
+    def _hidden_levels(self):
+        if self._peek_basic:
+            return []
+        return settings.hidden_levels()
+
+    def _rebuild_grammar_levels(self):
+        hidden = self._hidden_levels()
+        self.grammar_level_list.clear()
+        folded = [lv for lv, _ in GRAMMAR_LEVEL_ITEMS if lv in hidden]
+        if folded:
+            fold_item = QListWidgetItem(f"📦 {'/'.join(folded)} 已折叠（点击临时展开）")
+            fold_item.setData(Qt.UserRole, FOLD_KEY)
+            self.grammar_level_list.addItem(fold_item)
+        for level, text in GRAMMAR_LEVEL_ITEMS:
+            if level in hidden:
+                continue
+            item = QListWidgetItem(text)
+            item.setData(Qt.UserRole, level)
+            self.grammar_level_list.addItem(item)
+
+    def _select_first_grammar_level(self):
+        for row in range(self.grammar_level_list.count()):
+            item = self.grammar_level_list.item(row)
+            if item.data(Qt.UserRole) != FOLD_KEY:
+                self.grammar_level_list.setCurrentRow(row)
+                self._on_grammar_level_selected(item)
+                return
+
+    def apply_level_visibility(self):
+        """隐藏/显示 A1、A2 内容后刷新各个区域"""
+        self._peek_basic = False
+        self._rebuild_grammar_levels()
+        self._select_first_grammar_level()
+        self._refresh_vocab_stats()
+        self._refresh_overview()
 
     def _refresh_overview(self):
         """刷新学习概览"""
         progress = self.course_mgr.get_user_progress()
 
         # 更新等级徽章
-        self.level_badge.setText(progress['current_level'])
+        folded = progress['current_level'] in settings.hidden_levels()
+        self.level_badge.setText(progress['current_level'] + (' 📦' if folded else ''))
+        self.level_badge.setToolTip('该等级已折叠，可在复习中心取消隐藏' if folded else '')
 
         # 更新进度条
         self.vocab_progress.setMaximum(progress['vocab_target'])
@@ -443,7 +493,7 @@ class CoursePage(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        plan = self.course_mgr.get_daily_plan()
+        plan = self.course_mgr.get_daily_plan(hidden_levels=settings.hidden_levels())
 
         # 添加任务行
         for task in plan['tasks']:
@@ -467,6 +517,16 @@ class CoursePage(QWidget):
             task_info.setStyleSheet("font-size: 14px; color: #2c3e50;")
             task_layout.addWidget(task_info)
             task_layout.addStretch()
+
+            target = TASK_TARGETS.get(task.get('type'))
+            if target:
+                go_btn = QPushButton("开始 ▶")
+                go_btn.setStyleSheet("""
+                    QPushButton { background: #4a90d9; color: white; border: none; border-radius: 6px; padding: 6px 14px; font-size: 13px; }
+                    QPushButton:hover { background: #3a7bc8; }
+                """)
+                go_btn.clicked.connect(lambda checked=False, t=target: self._go_to(t))
+                task_layout.addWidget(go_btn)
 
             self.today_tasks_layout.addWidget(task_frame)
 
@@ -530,8 +590,15 @@ class CoursePage(QWidget):
 
     def _on_grammar_level_selected(self, item):
         """选择语法等级"""
-        text = item.text()
-        level = text[:2]  # A1, A2, B1
+        level = item.data(Qt.UserRole)
+        if level == FOLD_KEY:
+            self._peek_basic = True
+            self._rebuild_grammar_levels()
+            self._refresh_vocab_stats()
+            self._select_first_grammar_level()
+            return
+        if not level:
+            level = item.text()[:2]
 
         # 清空
         while self.grammar_detail_layout.count():
@@ -589,9 +656,11 @@ class CoursePage(QWidget):
             'B2': '#e74c3c', 'C1': '#9b59b6', 'C2': '#2c3e50',
         }
 
+        hidden = self._hidden_levels()
+
         for level in ['A1', 'A2', 'B1', 'B2', 'C1', 'C2']:
             count = vocab_counts.get(level, 0)
-            color = level_colors.get(level, '#7f8c8d')
+            color = '#b2bec3' if level in hidden else level_colors.get(level, '#7f8c8d')
 
             card = QFrame()
             card.setStyleSheet("""
@@ -616,7 +685,7 @@ class CoursePage(QWidget):
             count_lbl.setAlignment(Qt.AlignCenter)
             card_layout.addWidget(count_lbl)
 
-            label_lbl = QLabel("词")
+            label_lbl = QLabel("已折叠，复习中心可复习" if level in hidden else "词")
             label_lbl.setStyleSheet("font-size: 11px; color: #7f8c8d;")
             label_lbl.setAlignment(Qt.AlignCenter)
             card_layout.addWidget(label_lbl)
@@ -636,6 +705,8 @@ class CoursePage(QWidget):
             self.vocab_list_layout.addWidget(list_title)
 
             for level in ['A1', 'A2', 'B1']:
+                if level in hidden:
+                    continue
                 if vocab_counts.get(level, 0) > 0:
                     words = self.course_mgr.get_words_for_study(level, 10)
                     if words:
@@ -686,6 +757,14 @@ class CoursePage(QWidget):
 
         QTimer.singleShot(100, _do_build)
 
+    def _go_to(self, page_attr):
+        window = self.window()
+        if hasattr(window, 'go_to_page'):
+            window.go_to_page(page_attr)
+
     def refresh(self):
         """外部调用刷新"""
+        self._peek_basic = False
+        self._rebuild_grammar_levels()
         self._refresh_all()
+        self._select_first_grammar_level()

@@ -18,6 +18,7 @@ from answer_matcher import AnswerMatcher, AnswerSpec, MatchResult
 from us_travel_dialogs import get_all_us_dialogs, get_us_dialog
 from dialogs_data import get_all_dialogs, get_dialog
 from database import Database
+from study_tracker import get_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -471,13 +472,13 @@ class _RecordingIndicator(QFrame):
 class RolePlayPage(QWidget):
     """角色扮演对话练习页面。"""
 
-    def __init__(self, dictionary, database, parent=None):
+    def __init__(self, dictionary, database, parent=None, tts=None):
         super().__init__(parent)
         self.dictionary = dictionary
         self.database = database
 
         # 引擎
-        self.tts = TTSEngine()
+        self.tts = tts or TTSEngine()
         self.asr = ASREngine()
         self.matcher = AnswerMatcher()
 
@@ -1094,6 +1095,7 @@ class RolePlayPage(QWidget):
         """对话练习完成。"""
         self._set_input_enabled(False)
         self.input_hint.setText("练习完成！")
+        get_tracker().record('dialog_read')
 
         # 完成面板
         complete = QFrame()

@@ -14,6 +14,7 @@ class TTSEngine:
     def __init__(self):
         self.available = False
         self.engine = None
+        self._lock = threading.Lock()
         self._check_availability()
     
     def _check_availability(self):
@@ -25,7 +26,7 @@ class TTSEngine:
                 self.engine = win32com.client.Dispatch("SAPI.SpVoice")
                 self.available = True
                 return
-            except ImportError:
+            except Exception:
                 pass
         
         # 尝试使用 pyttsx3
@@ -34,8 +35,8 @@ class TTSEngine:
             self.engine = pyttsx3.init()
             self.available = True
             return
-        except ImportError:
-            pass
+        except Exception:
+            self.engine = None
         
         # 尝试使用 gTTS (需要网络)
         try:
@@ -66,12 +67,12 @@ class TTSEngine:
             return
         
         def _do_speak():
+            self._lock.acquire()
             try:
                 if sys.platform == 'win32' and hasattr(self.engine, 'Speak'):
                     # Windows SAPI
                     self.engine.Speak(text)
                 elif hasattr(self.engine, 'say'):
-                    # pyttsx3
                     self.engine.say(text)
                     self.engine.runAndWait()
                 elif self.engine == 'gtts':
@@ -98,6 +99,7 @@ class TTSEngine:
             except Exception as e:
                 print(f"TTS 朗读失败: {e}")
             finally:
+                self._lock.release()
                 if callback:
                     callback()
         
