@@ -49,8 +49,8 @@
 
 ```
 src/
-├── main.py                  # 主程序 + GUI（侧边栏导航 8 大模块）
-├── course_page.py           # 课程大纲 UI（概览/路线图/语法/词汇 4 标签）
+├── main.py                  # 主窗口 + GUI（侧边栏导航 10 个页面）+ 单词学习/词典/情景对话/统计页面
+├── course_page.py           # 课程大纲 UI（概览/路线图/语法/词汇 4 标签，A1/A2 折叠联动）
 ├── course_manager.py        # 课程管理，每日计划生成，6 个月路线图
 ├── review_center.py         # 复习中心：ReviewEngine（到期/错题/抽测/成绩）+ ReviewPage
 ├── review_bank.py           # A1/A2/B1 美国生活场景与语法抽测题库
@@ -73,8 +73,7 @@ src/
 ├── answer_matcher.py        # 多答案匹配引擎（3 策略匹配）
 ├── dictation_page.py        # 听写练习页面
 ├── roleplay_page.py         # 角色扮演页面
-├── travel_vocab.py          # 美国出差场景词汇（8 组 290 词，含中文语境释义和例句）
-└── main.py                  # 主窗口 + 单词学习/词典/情景对话页面
+└── travel_vocab.py          # 美国出差场景词汇（8 组 290 词，含中文语境释义和例句）
 scripts/
 └── build_common_dict.py     # 从 ECDICT 完整版生成精简词典
 tests/
@@ -149,7 +148,7 @@ pip install PySide6 requests cefrpy
 # 下载地址：https://github.com/skywind3000/ECDICT/releases
 # 放置到 data/ecdict_full.db
 
-# 精简版已包含在仓库中（data/ecdict.db，~50MB）
+# 精简版已包含在仓库中（data/ecdict.db，~9MB，3.1 万常用词）
 ```
 
 ### 4. 启用语音识别（可选）
