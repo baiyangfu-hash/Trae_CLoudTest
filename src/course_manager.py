@@ -164,8 +164,9 @@ class CourseManager:
             'start_date': progress.get('start_date', ''),
         }
 
-    def get_daily_plan(self):
-        """生成每日学习计划"""
+    def get_daily_plan(self, hidden_levels=None):
+        """生成每日学习计划；hidden_levels 为已折叠的等级，新词任务会改为学习折叠之外的内容"""
+        hidden = set(hidden_levels or [])
         progress = self.get_user_progress()
         level = progress['current_level']
         vocab_done = progress['vocab_mastered']
@@ -189,23 +190,31 @@ class CourseManager:
             pass
         conn.close()
 
+        if level in hidden:
+            new_desc = f'学习 {daily_new_words} 个出差/生活新词（{level} 基础已折叠，进入复习中心巩固）'
+            review_desc = f'复习 {due_review} 个到期单词（含 A1/A2 基础词，在复习中心统一完成）'
+        else:
+            new_desc = f'学习 {daily_new_words} 个{level}级新单词'
+            review_desc = f'复习 {due_review} 个到期单词'
+
         # 今日任务
         plan = {
             'date': datetime.now().strftime('%Y-%m-%d'),
             'level': level,
             'level_label': CEFR_LEVELS.get(level, {}).get('label', level),
+            'level_hidden': level in hidden,
             'tasks': [
                 {
                     'type': 'vocab_new',
                     'title': '新词学习',
-                    'description': f'学习 {daily_new_words} 个{level}级新单词',
+                    'description': new_desc,
                     'target': daily_new_words,
                     'icon': '📝',
                 },
                 {
                     'type': 'vocab_review',
                     'title': '单词复习',
-                    'description': f'复习 {due_review} 个到期单词',
+                    'description': review_desc,
                     'target': due_review,
                     'icon': '🔄',
                 },

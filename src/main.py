@@ -28,7 +28,7 @@ from us_travel_dialogs import get_all_us_dialogs, get_us_dialog
 from roleplay_page import RolePlayPage
 from dialog_importer import DialogImporter, ImportError as DialogImportError
 from course_page import CoursePage
-from review_center import ReviewPage
+from review_center import ReviewPage, ReviewEngine
 import settings
 from grammar_practice_page import GrammarPracticePage
 from level_test_page import LevelTestPage
@@ -1401,9 +1401,12 @@ class StudyPage(QWidget):
 
 class StatsPage(QWidget):
     """学习统计页面"""
-    def __init__(self, database, parent=None):
+    TYPE_NAMES = {'vocab': '词汇', 'grammar': '语法', 'reading': '阅读', 'scene': '美国生活场景', 'other': '其他'}
+
+    def __init__(self, database, dictionary=None, parent=None):
         super().__init__(parent)
         self.database = database
+        self.engine = ReviewEngine(database, dictionary)
         self._setup_ui()
         self._load_stats()
 
@@ -1475,8 +1478,22 @@ class StatsPage(QWidget):
                 line-height: 1.6;
             }
         """)
-        self.records_text.setMaximumHeight(200)
+        self.records_text.setMaximumHeight(160)
         layout.addWidget(self.records_text)
+
+        weak_title = QLabel("🎯 薄弱点报告")
+        weak_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
+        layout.addWidget(weak_title)
+
+        self.weak_label = QLabel()
+        self.weak_label.setTextFormat(Qt.RichText)
+        self.weak_label.setWordWrap(True)
+        self.weak_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.weak_label.setStyleSheet(
+            "QLabel { background: white; border: 1px solid #e0e0e0; border-radius: 8px; "
+            "padding: 12px; font-size: 13px; color: #2c3e50; }"
+        )
+        layout.addWidget(self.weak_label)
 
         # 刷新按钮
         refresh_btn = QPushButton("刷新统计")
@@ -1530,6 +1547,34 @@ class StatsPage(QWidget):
 
         text += "</table>"
         self.records_text.setHtml(text)
+        self._load_weak_report()
+
+    def _load_weak_report(self):
+        try:
+            rep = self.engine.weak_report()
+        except Exception:
+            self.weak_label.setText("暂时无法生成薄弱点报告。")
+            return
+        lines = []
+        if rep['levels']:
+            lines.append("<b>抽测分级正确率（最近 5 次）</b>：" + "　".join(
+                f"{lv} {int(rate * 100)}%（{n} 题）" for lv, (rate, n) in sorted(rep['levels'].items())))
+        if rep['types']:
+            ranked = sorted(rep['types'].items(), key=lambda kv: kv[1][0])
+            lines.append("<b>题型正确率</b>：" + "　".join(
+                f"{self.TYPE_NAMES.get(tp, tp)} {int(rate * 100)}%（{n} 题）" for tp, (rate, n) in ranked))
+            weakest, (w_rate, _) = ranked[0]
+            if w_rate < 0.7:
+                lines.append(f"👉 最弱的是「{self.TYPE_NAMES.get(weakest, weakest)}」，多做几次抽测或错题重做。")
+        if rep['top_words']:
+            lines.append("<b>最常忘的词</b>：" + "、".join(f"{w}×{c}" for w, c in rep['top_words']))
+        if rep['top_questions']:
+            lines.append("<b>最常答错的题</b>：<br>" + "<br>".join(
+                f"· {html.escape(q)} → {html.escape(a)}（错 {c} 次）" for q, a, c in rep['top_questions']))
+        lines.append(f"错题本 {rep['mistakes']} 个词　|　抽测错题库 {rep['misses']} 道（在「复习中心」重练）")
+        if not (rep['levels'] or rep['top_words'] or rep['top_questions']):
+            lines.insert(0, "还没有足够的数据。先去「复习中心」做一次 A1/A2 抽测，这里就会显示你的薄弱环节。")
+        self.weak_label.setText("<br>".join(lines))
 
 
 class MainWindow(QMainWindow):
@@ -1595,7 +1640,7 @@ class MainWindow(QMainWindow):
         self.dictation_page = DictationPage(self.dictionary, self.database, tts=self.tts)
         self.roleplay_page = RolePlayPage(self.dictionary, self.database, tts=self.tts)
         self.grammar_practice_page = GrammarPracticePage()
-        self.stats_page = StatsPage(self.database)
+        self.stats_page = StatsPage(self.database, self.dictionary)
         self.review_page = ReviewPage(self.dictionary, self.database, self.tts)
 
         pages = [
@@ -1662,7 +1707,7 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(self.motivation_frame)
 
         # 版本信息
-        version = QLabel("v1.7.0")
+        version = QLabel("v1.8.0")
         version.setStyleSheet("color: #7f8c8d; font-size: 11px; padding: 8px;")
         version.setAlignment(Qt.AlignCenter)
         sidebar_layout.addWidget(version)
@@ -1699,6 +1744,8 @@ class MainWindow(QMainWindow):
         page = self.stack.widget(index)
         if page is self.review_page:
             self.review_page.show_dashboard()
+        elif page is self.stats_page:
+            self.stats_page._load_stats()
         elif page is self.course_page:
             try:
                 self.course_page.refresh()

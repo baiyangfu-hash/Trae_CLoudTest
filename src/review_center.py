@@ -48,6 +48,18 @@ class ReviewEngine:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        self.database.cursor.execute('''
+            CREATE TABLE IF NOT EXISTS review_misses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                question TEXT NOT NULL UNIQUE,
+                level TEXT,
+                qtype TEXT,
+                payload TEXT NOT NULL,
+                miss_count INTEGER NOT NULL DEFAULT 1,
+                streak INTEGER NOT NULL DEFAULT 0,
+                last_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         self.database.conn.commit()
 
     def _levels(self):
@@ -207,6 +219,11 @@ class ReviewEngine:
         bank = self._bank_questions(groups)
         self.rng.shuffle(bank)
         seen = {q['question'] for q in questions}
+        redo = self.missed_questions(groups, limit=max(1, int(n * 0.3)))
+        for q in redo:
+            if q['question'] not in seen:
+                seen.add(q['question'])
+                questions.append(q)
         for q in bank:
             if len(questions) >= n:
                 break
@@ -221,19 +238,119 @@ class ReviewEngine:
         self.rng.shuffle(questions)
         return questions[:n]
 
-    def record_check(self, label, results):
+    def record_check(self, label, results, log=True):
         score = sum(1 for r in results if r['correct'])
+        if not log:
+            for r in results:
+                self._track_miss(r)
+            self.database.conn.commit()
+            return score
         detail = {}
+        types = {}
         for r in results:
             lv = r.get('level') or '其他'
             right, total = detail.get(lv, [0, 0])
             detail[lv] = [right + (1 if r['correct'] else 0), total + 1]
+            tp = r.get('type') or 'other'
+            right, total = types.get(tp, [0, 0])
+            types[tp] = [right + (1 if r['correct'] else 0), total + 1]
+            self._track_miss(r)
+        detail['_types'] = types
         self.database.cursor.execute(
             'INSERT INTO review_checks (label, score, total, detail) VALUES (?, ?, ?, ?)',
             (label, score, len(results), json.dumps(detail, ensure_ascii=False))
         )
         self.database.conn.commit()
         return score
+
+    def _track_miss(self, result):
+        q = result.get('question')
+        if not q or q.get('type') == 'vocab' or not q.get('question'):
+            return
+        cur = self.database.cursor
+        row = cur.execute(
+            'SELECT id, miss_count, streak FROM review_misses WHERE question = ?', (q['question'],)
+        ).fetchone()
+        if result['correct']:
+            if row:
+                if row['streak'] + 1 >= 2:
+                    cur.execute('DELETE FROM review_misses WHERE id = ?', (row['id'],))
+                else:
+                    cur.execute('UPDATE review_misses SET streak = streak + 1 WHERE id = ?', (row['id'],))
+            return
+        payload = json.dumps(q, ensure_ascii=False)
+        if row:
+            cur.execute(
+                'UPDATE review_misses SET miss_count = miss_count + 1, streak = 0, payload = ?, '
+                'last_at = CURRENT_TIMESTAMP WHERE id = ?', (payload, row['id'])
+            )
+        else:
+            cur.execute(
+                'INSERT INTO review_misses (question, level, qtype, payload) VALUES (?, ?, ?, ?)',
+                (q['question'], q.get('level'), q.get('type'), payload)
+            )
+
+    def miss_count(self):
+        row = self.database.cursor.execute('SELECT COUNT(*) AS c FROM review_misses').fetchone()
+        return row['c'] if row else 0
+
+    def missed_questions(self, groups=None, limit=10):
+        rows = self.database.cursor.execute(
+            'SELECT payload, level FROM review_misses ORDER BY miss_count DESC, last_at DESC'
+        ).fetchall()
+        out = []
+        for r in rows:
+            if groups and r['level'] not in groups:
+                continue
+            try:
+                q = json.loads(r['payload'])
+            except ValueError:
+                continue
+            q['options'] = list(q.get('options', []))
+            self.rng.shuffle(q['options'])
+            out.append(q)
+            if len(out) >= limit:
+                break
+        return out
+
+    def type_accuracy(self, limit=5):
+        acc = {}
+        for row in self.check_history(limit):
+            try:
+                detail = json.loads(row['detail'] or '{}')
+            except ValueError:
+                continue
+            for tp, (right, total) in (detail.get('_types') or {}).items():
+                a = acc.setdefault(tp, [0, 0])
+                a[0] += right
+                a[1] += total
+        return {tp: (r / t if t else 0.0, t) for tp, (r, t) in acc.items()}
+
+    def weak_report(self):
+        cur = self.database.cursor
+        top_words = [
+            (r['word'], r['c']) for r in cur.execute(
+                "SELECT word, COUNT(*) AS c FROM study_records "
+                "WHERE action = 'review' AND result = 'again' GROUP BY word ORDER BY c DESC, word LIMIT 8"
+            ).fetchall()
+        ]
+        top_questions = []
+        for r in cur.execute(
+            'SELECT payload, miss_count FROM review_misses ORDER BY miss_count DESC, last_at DESC LIMIT 5'
+        ).fetchall():
+            try:
+                q = json.loads(r['payload'])
+            except ValueError:
+                continue
+            top_questions.append((q.get('question', ''), q.get('answer', ''), r['miss_count']))
+        return {
+            'levels': self.level_accuracy(5),
+            'types': self.type_accuracy(5),
+            'top_words': top_words,
+            'top_questions': top_questions,
+            'mistakes': len(self.mistake_words(1000)),
+            'misses': self.miss_count(),
+        }
 
     def check_history(self, limit=5):
         rows = self.database.cursor.execute(
@@ -248,7 +365,10 @@ class ReviewEngine:
                 detail = json.loads(row['detail'] or '{}')
             except ValueError:
                 continue
-            for lv, (right, total) in detail.items():
+            for lv, val in detail.items():
+                if lv.startswith('_'):
+                    continue
+                right, total = val
                 a = acc.setdefault(lv, [0, 0])
                 a[0] += right
                 a[1] += total
@@ -276,6 +396,8 @@ class ReviewEngine:
             return f"距离上次 A1/A2 抽测已 {since} 天，建议再测一次，防止基础遗忘。"
         if self.mistake_words(1):
             return "错题本里还有没掌握的词，建议重练一遍。"
+        if self.miss_count():
+            return f"有 {self.miss_count()} 道抽测答错的题还没巩固，建议重做一遍。"
         return "今天的复习任务都完成了，可以去学新内容。"
 
 
@@ -366,7 +488,10 @@ class ReviewPage(QWidget):
         self.btn_mistakes = QPushButton("📕 错题重练")
         self.btn_mistakes.setStyleSheet(BTN_PLAIN)
         self.btn_mistakes.clicked.connect(self.start_mistake_review)
-        for b in (self.btn_due, self.btn_basic_due, self.btn_mistakes):
+        self.btn_redo = QPushButton("🔁 重做答错的题")
+        self.btn_redo.setStyleSheet(BTN_PLAIN)
+        self.btn_redo.clicked.connect(self.start_missed_questions)
+        for b in (self.btn_due, self.btn_basic_due, self.btn_mistakes, self.btn_redo):
             btns.addWidget(b)
         lay.addLayout(btns)
 
@@ -550,6 +675,9 @@ class ReviewPage(QWidget):
         self.btn_due.setEnabled(due['total'] > 0)
         self.btn_basic_due.setEnabled((due['A1'] + due['A2']) > 0)
         self.btn_mistakes.setEnabled(len(mistakes) > 0)
+        misses = self.engine.miss_count()
+        self.btn_redo.setText(f"🔁 重做答错的题（{misses}）" if misses else "🔁 重做答错的题")
+        self.btn_redo.setEnabled(misses > 0)
 
     def show_dashboard(self):
         self.refresh()
@@ -692,6 +820,19 @@ class ReviewPage(QWidget):
         self.stack.setCurrentIndex(2)
         self._show_question()
 
+    def start_missed_questions(self):
+        questions = self.engine.missed_questions(limit=10)
+        if not questions:
+            self.show_dashboard()
+            return
+        self.questions = questions
+        self.q_index = 0
+        self.q_results = []
+        self.q_label = '错题重做'
+        self.new_badges = []
+        self.stack.setCurrentIndex(2)
+        self._show_question()
+
     def _show_question(self):
         q = self.questions[self.q_index]
         self.q_answered = False
@@ -715,7 +856,8 @@ class ReviewPage(QWidget):
         self.q_answered = True
         q = self.questions[self.q_index]
         correct = btn.text() == q['answer']
-        self.q_results.append({'level': q.get('level'), 'correct': correct, 'word': q.get('word')})
+        self.q_results.append({'level': q.get('level'), 'correct': correct, 'word': q.get('word'),
+                               'type': q.get('type'), 'question': q})
         for b in self.quiz_buttons:
             b.setEnabled(False)
             if b.text() == q['answer']:
@@ -748,7 +890,7 @@ class ReviewPage(QWidget):
         if not self.q_results:
             self.show_dashboard()
             return
-        score = self.engine.record_check(self.q_label, self.q_results)
+        score = self.engine.record_check(self.q_label, self.q_results, log=self.q_label != '错题重做')
         total = len(self.q_results)
         pct = int(score * 100 / total)
         if pct >= 85:
@@ -757,6 +899,8 @@ class ReviewPage(QWidget):
             advice = "基础基本稳定，薄弱处已进入错题本，建议用「错题重练」补一下。"
         else:
             advice = "基础有些生疏，建议先取消隐藏 A1/A2，系统复习一遍对应课程。"
+        if self.q_label == '错题重做':
+            advice = f"连续答对 2 次的题会从错题题库移除，目前还剩 {self.engine.miss_count()} 道待巩固。"
         by_level = {}
         for r in self.q_results:
             lv = r.get('level') or '其他'

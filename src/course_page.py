@@ -447,14 +447,16 @@ class CoursePage(QWidget):
         self._rebuild_grammar_levels()
         self._select_first_grammar_level()
         self._refresh_vocab_stats()
-        self._refresh_daily_plan()
+        self._refresh_overview()
 
     def _refresh_overview(self):
         """刷新学习概览"""
         progress = self.course_mgr.get_user_progress()
 
         # 更新等级徽章
-        self.level_badge.setText(progress['current_level'])
+        folded = progress['current_level'] in settings.hidden_levels()
+        self.level_badge.setText(progress['current_level'] + (' 📦' if folded else ''))
+        self.level_badge.setToolTip('该等级已折叠，可在复习中心取消隐藏' if folded else '')
 
         # 更新进度条
         self.vocab_progress.setMaximum(progress['vocab_target'])
@@ -491,7 +493,7 @@ class CoursePage(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-        plan = self.course_mgr.get_daily_plan()
+        plan = self.course_mgr.get_daily_plan(hidden_levels=settings.hidden_levels())
 
         # 添加任务行
         for task in plan['tasks']:
