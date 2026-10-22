@@ -272,6 +272,29 @@ main {
 .done h2 { margin: 10px 0 4px; }
 .done-actions { display: flex; gap: 10px; justify-content: center; margin-top: 20px; }
 
+/* ---------- 句子本 ---------- */
+.form .segs { margin-bottom: 10px; }
+.form input {
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 16px;
+}
+.form textarea { font-size: 16px; }
+.note { border-left: 4px solid var(--line); }
+.zh-main { font-size: 17px; font-weight: 600; margin: 4px 0 8px; }
+.fill-row { display: flex; gap: 8px; align-items: center; }
+.fill-row input { flex: 1; margin-top: 0; padding: 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 16px; min-width: 0; }
+.btn.small { padding: 10px 14px; flex-shrink: 0; }
+.link { display: inline-block; color: var(--primary); font-size: 14px; padding: 8px 0 0; }
+.link.danger { color: var(--danger); padding: 0; }
+.note-actions { display: flex; justify-content: flex-end; gap: 18px; margin: -4px 4px 12px; }
+.note-actions .link { padding: 0; }
+
 /* ---------- 我的 ---------- */
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .stat { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 4px; text-align: center; }
