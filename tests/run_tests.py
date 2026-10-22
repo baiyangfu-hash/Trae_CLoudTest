@@ -313,7 +313,7 @@ def test_us_travel_dialogs(runner):
         from us_travel_dialogs import get_all_us_dialogs, get_us_dialog
         
         dialogs = get_all_us_dialogs()
-        assert len(dialogs) == 22, f"应有22个美国出差对话，实际: {len(dialogs)}"
+        assert len(dialogs) == 24, f"应有24个美国出差对话，实际: {len(dialogs)}"
         print(f"  美国出差对话数: {len(dialogs)}")
         
         # 检查分类
@@ -322,7 +322,7 @@ def test_us_travel_dialogs(runner):
             cat = d['category']
             categories[cat] = categories.get(cat, 0) + 1
         
-        expected_cats = {'超市购物', '交通出行', '问路', '日常交流', '美国特有'}
+        expected_cats = {'超市购物', '交通出行', '问路', '日常交流', '美国特有', '银行'}
         for cat in expected_cats:
             assert cat in categories, f"缺少分类: {cat}"
         print(f"  分类统计: {categories}")

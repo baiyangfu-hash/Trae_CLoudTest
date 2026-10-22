@@ -59,6 +59,90 @@ window.PHRASES = {
   scenes: [
     // ------------------------------------------------------------
     {
+      id: "bank",
+      name: "银行",
+      icon: "🏦",
+      tip: "Checking account = 日常账户（借记卡、工资、付账），Savings account = 储蓄账户。开户带护照 + 第二证件（驾照等）+ 地址证明（租房合同、水电账单），有 SSN 或 ITIN 更顺利；可以先在银行 App 上预约（appointment）。转账常用 Zelle。打客服电话听到语音菜单，直接说 “Representative” 可转人工。银行不会主动打电话问你的 PIN 或验证码，有人问就是诈骗。",
+      dialogs: ["bank_open_account", "bank_card_problem"],
+      sections: [
+        {
+          title: "进门 / 开户",
+          items: [
+            { h: "How can I help you today?", z: "今天要办什么业务？", r: ["I'd like to open a checking account.", "我想开一个日常（支票）账户。"] },
+            { h: "Do you have an appointment?", z: "您有预约吗？", r: ["No, I'm a walk-in.", "没有，我是直接来的。"] },
+            { h: "Have a seat. A banker will be right with you.", z: "请坐，客户经理马上来。" },
+            { h: "I'll need two forms of ID and proof of address.", z: "需要两种证件和地址证明。", r: ["Here's my passport and my lease.", "这是我的护照和租房合同。"] },
+            { h: "Do you have a Social Security number?", z: "您有社安号吗？", r: ["No, but I have an ITIN.", "没有，但我有 ITIN（税号）。"] },
+            { h: "Would you like to open a savings account as well?", z: "要不要同时开一个储蓄账户？", r: ["Not right now, thanks.", "暂时不用，谢谢。"] },
+            { s: "Is there a monthly fee?", z: "有月费吗？" },
+            { s: "How can I avoid the monthly fee?", z: "怎么才能免月费？" },
+            { h: "It's waived if you set up direct deposit.", z: "设置工资直接入账就免（月费）。" },
+            { s: "What's the minimum balance?", z: "最低余额要求是多少？" },
+            { s: "When will I get my debit card?", z: "借记卡什么时候能拿到？" },
+            { h: "Your card will arrive in the mail in seven to ten business days.", z: "卡会在 7 到 10 个工作日内寄到。" },
+            { h: "Please enter a four-digit PIN.", z: "请输入一个四位数密码。" },
+          ],
+        },
+        {
+          title: "柜台：存钱 / 取钱",
+          items: [
+            { s: "I'd like to deposit this check.", z: "我想存这张支票。" },
+            { s: "I'd like to withdraw five hundred dollars.", z: "我想取 500 美元。" },
+            { s: "I'd like to deposit some cash.", z: "我想存一些现金。" },
+            { h: "Can I see your ID?", z: "能看下您的证件吗？" },
+            { h: "Please sign the back of the check.", z: "请在支票背面签名（背书）。" },
+            { h: "How would you like your cash?", z: "现金要什么面额的？", r: ["Twenties, please.", "要 20 块的。"] },
+            { h: "Large bills or small bills?", z: "要大面额还是小面额？", r: ["Small bills, please.", "小面额。"] },
+            { h: "There's a hold on this check. The funds will be available on Thursday.", z: "这张支票有冻结期，钱周四才能用。", r: ["Why is there a hold?", "为什么会冻结？"] },
+            { s: "Can I get a cashier's check?", z: "我能开一张本票吗？（交房租押金常用）" },
+            { s: "What's my current balance?", z: "我现在的余额是多少？" },
+          ],
+        },
+        {
+          title: "卡 / 账户出问题",
+          items: [
+            { s: "My card was declined.", z: "我的卡被拒了。" },
+            { s: "I lost my debit card.", z: "我的借记卡丢了。" },
+            { s: "I see a charge I don't recognize.", z: "我看到一笔我不认识的消费。" },
+            { s: "Can you lock my card?", z: "能帮我冻结这张卡吗？" },
+            { s: "I forgot my PIN.", z: "我忘了密码。" },
+            { s: "I can't log in to the app.", z: "我登录不了 App。" },
+            { s: "I need to update my address.", z: "我要更新我的地址。" },
+            { h: "Did you authorize this transaction?", z: "这笔交易是您本人授权的吗？", r: ["No, I didn't make that purchase.", "不是，我没买过这个。"] },
+            { h: "I've locked your card and ordered a new one.", z: "我已经冻结了您的卡，并给您补办了新卡。" },
+            { h: "We'll file a dispute and give you a temporary credit.", z: "我们会提交争议申诉，先给您临时退款。" },
+            { h: "We'll text a one-time code to your phone.", z: "我们会给您手机发一个一次性验证码。（只在 App/网页里输入，任何来电索要验证码都是诈骗）" },
+          ],
+        },
+        {
+          title: "打客服电话",
+          items: [
+            { h: "Please say or enter your account number.", z: "请说出或输入您的账号。（语音菜单）" },
+            { s: "Representative.", z: "人工客服。（对着语音菜单说，转人工）" },
+            { h: "Your call may be recorded for quality assurance.", z: "通话可能会被录音以保证服务质量。" },
+            { h: "Thank you for holding. Who am I speaking with?", z: "感谢等待。请问您是哪位？", r: ["Hi, this is Li Wang.", "你好，我是王力。"] },
+            { h: "Can you verify your date of birth?", z: "能核实一下您的出生日期吗？", r: ["It's March fifth, nineteen eighty-five.", "1985 年 3 月 5 日。"] },
+            { h: "Can you verify the last four digits of your Social?", z: "能核实一下社安号后四位吗？", f: "last four of your Social（Social 指 Social Security number）" },
+            { h: "Is there anything else I can help you with?", z: "还有别的要帮忙的吗？", r: ["No, that's it. Thanks for your help.", "没有了，谢谢你的帮助。"] },
+            { s: "Could you speak a little slower? English is my second language.", z: "能说慢一点吗？英语是我的第二语言。" },
+          ],
+        },
+        {
+          title: "转账 / ATM",
+          items: [
+            { s: "How do I send money with Zelle?", z: "怎么用 Zelle 转账？" },
+            { s: "Can I send a wire transfer overseas?", z: "能往国外电汇吗？" },
+            { s: "What's the fee for an international wire?", z: "国际电汇手续费多少？" },
+            { s: "Is there an ATM nearby?", z: "附近有 ATM 吗？" },
+            { s: "The ATM kept my card.", z: "ATM 把我的卡吞了。" },
+            { h: "You'll be charged a three-dollar fee. Do you want to continue?", z: "将收取 3 美元手续费，是否继续？（非本行 ATM 提示）" },
+          ],
+        },
+      ],
+    },
+
+    // ------------------------------------------------------------
+    {
       id: "supermarket",
       name: "超市",
       icon: "🛒",
