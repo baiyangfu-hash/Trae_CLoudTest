@@ -313,7 +313,7 @@ def test_us_travel_dialogs(runner):
         from us_travel_dialogs import get_all_us_dialogs, get_us_dialog
         
         dialogs = get_all_us_dialogs()
-        assert len(dialogs) == 24, f"应有24个美国出差对话，实际: {len(dialogs)}"
+        assert len(dialogs) == 25, f"应有25个美国出差对话，实际: {len(dialogs)}"
         print(f"  美国出差对话数: {len(dialogs)}")
         
         # 检查分类

@@ -259,7 +259,8 @@
         }
       });
     }
-    return out;
+    // 同一句话可能出现在多个场景里（如 “Can I see your ID?”），只练一次
+    return [...new Set(out)];
   }
 
   function newLeftToday() {

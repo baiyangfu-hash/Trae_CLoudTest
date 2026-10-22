@@ -1998,6 +1998,127 @@ window.DIALOGS = {
    }
   ]
  },
+ "bank_open_questions": {
+  "title": "开户时被问的背景问题",
+  "title_en": "Account Opening Questions",
+  "lines": [
+   {
+    "speaker": "Banker",
+    "text": "Okay, I just need to ask you a few questions. These are standard questions we ask everyone.",
+    "translation": "好的，我需要问您几个问题。这些是我们问每个人的标准问题。"
+   },
+   {
+    "speaker": "You",
+    "text": "Sure, no problem. Could you speak a little slowly, please?",
+    "translation": "好的，没问题。能说慢一点吗？"
+   },
+   {
+    "speaker": "Banker",
+    "text": "Of course. Are you a U.S. citizen?",
+    "translation": "当然。您是美国公民吗？"
+   },
+   {
+    "speaker": "You",
+    "text": "No, I'm not. I'm here on a work visa.",
+    "translation": "不是，我持工作签证。"
+   },
+   {
+    "speaker": "Banker",
+    "text": "Okay. What's your current address, and how long have you lived there?",
+    "translation": "好的。您现在的地址是？在那里住了多久？"
+   },
+   {
+    "speaker": "You",
+    "text": "It's 125 Oak Street, Apartment 3B. I moved in about two months ago.",
+    "translation": "Oak 街125号，3B 公寓。我大概两个月前搬进去的。"
+   },
+   {
+    "speaker": "Banker",
+    "text": "And what's your occupation?",
+    "translation": "您的职业是什么？"
+   },
+   {
+    "speaker": "You",
+    "text": "I'm an electrical engineer.",
+    "translation": "我是电气工程师。"
+   },
+   {
+    "speaker": "Banker",
+    "text": "Who's your employer?",
+    "translation": "您在哪家公司工作？"
+   },
+   {
+    "speaker": "You",
+    "text": "I work for ABC Company.",
+    "translation": "我在 ABC 公司工作。"
+   },
+   {
+    "speaker": "Banker",
+    "text": "What will you mainly use this account for?",
+    "translation": "这个账户主要用来做什么？"
+   },
+   {
+    "speaker": "You",
+    "text": "Getting my paycheck and paying bills.",
+    "translation": "收工资和付账单。"
+   },
+   {
+    "speaker": "Banker",
+    "text": "And where will the money in this account come from?",
+    "translation": "账户里的钱主要从哪来？"
+   },
+   {
+    "speaker": "You",
+    "text": "Mostly from my salary.",
+    "translation": "主要是我的工资。"
+   },
+   {
+    "speaker": "Banker",
+    "text": "Roughly how much do you expect to deposit each month?",
+    "translation": "您预计每月大概存入多少？"
+   },
+   {
+    "speaker": "You",
+    "text": "About five thousand dollars.",
+    "translation": "大约五千美元。"
+   },
+   {
+    "speaker": "Banker",
+    "text": "Do you expect to send or receive any international wire transfers?",
+    "translation": "您会有国际汇款进出吗？"
+   },
+   {
+    "speaker": "You",
+    "text": "Yes, sometimes. I might send money to my family in China.",
+    "translation": "会，偶尔。我可能会汇钱给国内的家人。"
+   },
+   {
+    "speaker": "Banker",
+    "text": "Got it. Last question: would you like overdraft protection?",
+    "translation": "好的。最后一个问题：要开透支保护吗？"
+   },
+   {
+    "speaker": "You",
+    "text": "What does that mean exactly?",
+    "translation": "那具体是什么意思？"
+   },
+   {
+    "speaker": "Banker",
+    "text": "If you don't have enough money, we'll still approve the purchase, but there's a thirty-five-dollar fee.",
+    "translation": "如果您余额不够，我们仍然会让这笔消费通过，但会收35美元手续费。"
+   },
+   {
+    "speaker": "You",
+    "text": "I see. No, thank you. Please decline it.",
+    "translation": "明白了。不用了，谢谢，请帮我拒绝。"
+   },
+   {
+    "speaker": "Banker",
+    "text": "No problem. Okay, you're all set. Let's get your debit card ready.",
+    "translation": "没问题。好了，都办好了。我们来准备您的借记卡。"
+   }
+  ]
+ },
  "bank_card_problem": {
   "title": "打电话处理银行卡问题",
   "title_en": "Calling the Bank About a Card Problem",
