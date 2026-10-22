@@ -6,6 +6,26 @@
 
 ---
 
+## 📱 手机版：英语随身练（iPhone 网页 App）
+
+为碎片时间设计，人在美国、现用现查。代码在 `web/`，纯网页、无需安装，离线可用。
+
+- **场景速查**：救命句 + 超市 / 餐馆 / 打车 / 公交地铁 / 飞机 / 快递，每句分“🗣 我说”和“👂 对方说”，附“听起来像”和“我可以回”，点一下就朗读（可慢速）
+- **今日练习**：每天几句新句 + 到期复习（FSRS-4.5 记忆曲线），一次 3 分钟；“对方说”的句子先只听不看，练听力
+- **只练这个场景**：去超市前点一下，练 3 分钟再进门
+- **搜索**：中文或英文都能搜，比如“打包”“退货”
+- **完整对话**：复用桌面版的情景对话，可整段播放、遮住中文
+
+**装到 iPhone 主屏幕**：用 Safari 打开 https://baiyangfu-hash.github.io/Trae_CLoudTest/ → 点分享按钮 → “添加到主屏幕”。
+
+**发布**：`web/` 的改动合并到 `main` 后，GitHub Actions 自动发布到 GitHub Pages（首次需在仓库 Settings → Pages → Source 选 “GitHub Actions”）。
+
+**修改内容**：场景句子在 `web/data/phrases.js`，直接编辑即可；桌面版对话改了以后运行 `python scripts/export_web_data.py` 重新导出到 `web/data/dialogs.js`。
+
+**本地预览**：`cd web && python -m http.server 8000`，浏览器打开 http://localhost:8000
+
+---
+
 ## 功能模块
 
 | 模块 | 功能 | 状态 |
