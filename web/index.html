@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>英语随身练</title>
+  <meta name="description" content="在美国生活的碎片时间英语口语练习：超市、餐馆、打车、公交、飞机、快递" />
+  <meta name="theme-color" content="#2563eb" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="随身练" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main id="view"></main>
+  <nav class="tabbar">
+    <a href="#/" data-tab="home"><span>🏠</span>场景</a>
+    <a href="#/practice" data-tab="practice"><span>✏️</span>练习</a>
+    <a href="#/me" data-tab="me"><span>👤</span>我的</a>
+  </nav>
+  <div id="toast" role="status"></div>
+  <script src="data/phrases.js"></script>
+  <script src="data/dialogs.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
