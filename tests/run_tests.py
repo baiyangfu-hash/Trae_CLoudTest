@@ -201,6 +201,29 @@ def test_fsrs(runner):
         assert 'again' in intervals, "应包含 again 间隔"
         assert 'easy' in intervals, "应包含 easy 间隔"
         print(f"  各评分间隔: {intervals}")
+
+        # 连续按时复习并评 good，间隔应越来越长（旧版本会卡死在 1 天）
+        import json
+        from datetime import datetime, timedelta
+        s = FSRSState()
+        history = []
+        for _ in range(4):
+            s, _ = engine.review(s, 'good')
+            assert s.stability > 0, "稳定性应为正数"
+            assert 1 <= s.difficulty <= 10, "难度应在 1~10"
+            history.append(s.scheduled_days)
+            # 模拟到期当天才复习
+            s.last_review = (datetime.now() - timedelta(days=s.scheduled_days)).isoformat()
+        assert all(b > a for a, b in zip(history, history[1:])), f"间隔应递增: {history}"
+        print(f"  连续 good 间隔: {history}")
+
+        # 兼容旧版本存下的异常状态（负稳定性、无 last_review）
+        legacy = FSRSState.from_json(json.dumps({
+            'due': datetime.now().isoformat(), 'stability': -40.0, 'difficulty': -0.6,
+            'elapsed_days': 1, 'scheduled_days': 1, 'reps': 3, 'lapses': 0, 'state': 2}))
+        fixed, _ = engine.review(legacy, 'good')
+        assert fixed.stability > 0 and fixed.scheduled_days >= 1, "旧数据应能正常复习"
+        print(f"  旧数据兼容: 间隔={fixed.scheduled_days}天")
     runner.test("FSRS 算法 (fsrs_engine.py)", _test)
 
 
@@ -557,6 +580,7 @@ def test_review_engine(runner):
     """测试复习引擎：到期队列、错题本、抽测、成绩记录"""
     def _test():
         import random
+        import json
         from datetime import datetime, timedelta
         from database import Database
         from dictionary import Dictionary
