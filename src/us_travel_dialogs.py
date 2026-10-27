@@ -2010,6 +2010,390 @@ DIALOGS = {
                 "highlight_words": ["double the tax"]
             }
         ]
+    },
+
+    # ============================================================
+    # Category: 银行 (Bank)
+    # ============================================================
+    "bank_open_account": {
+        "title": "银行开户+办借记卡",
+        "title_en": "Opening a Bank Account",
+        "category": "银行",
+        "difficulty": "中级",
+        "lines": [
+            {
+                "speaker": "Banker",
+                "text": "Hi there, how can I help you today?",
+                "translation": "您好，今天要办什么业务？",
+                "highlight_words": []
+            },
+            {
+                "speaker": "You",
+                "text": "Hi, I'd like to open a checking account.",
+                "translation": "你好，我想开一个支票账户（日常账户）。",
+                "highlight_words": ["checking account"]
+            },
+            {
+                "speaker": "Banker",
+                "text": "Sure. Do you have an appointment, or are you a walk-in?",
+                "translation": "好的。您有预约吗，还是直接过来的？",
+                "highlight_words": ["appointment", "walk-in"]
+            },
+            {
+                "speaker": "You",
+                "text": "I don't have an appointment. Is that okay?",
+                "translation": "我没有预约，可以吗？",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Banker",
+                "text": "No problem, I can help you now. I'll need two forms of ID and proof of address.",
+                "translation": "没问题，我现在就可以帮您。需要两种身份证件和地址证明。",
+                "highlight_words": ["two forms of ID", "proof of address"]
+            },
+            {
+                "speaker": "You",
+                "text": "Here's my passport and my driver's license. And this is my lease.",
+                "translation": "这是我的护照和驾照。这是我的租房合同。",
+                "highlight_words": ["passport", "lease"]
+            },
+            {
+                "speaker": "Banker",
+                "text": "Great. Do you have a Social Security number?",
+                "translation": "好的。您有社安号吗？",
+                "highlight_words": ["Social Security number"]
+            },
+            {
+                "speaker": "You",
+                "text": "Yes, I do. Here's my card.",
+                "translation": "有，这是我的卡。",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Banker",
+                "text": "Would you like to open a savings account as well?",
+                "translation": "要不要同时开一个储蓄账户？",
+                "highlight_words": ["savings account"]
+            },
+            {
+                "speaker": "You",
+                "text": "Not right now. Is there a monthly fee for checking?",
+                "translation": "暂时不用。支票账户有月费吗？",
+                "highlight_words": ["monthly fee"]
+            },
+            {
+                "speaker": "Banker",
+                "text": "It's twelve dollars a month, but it's waived if you have direct deposit or keep a minimum balance of fifteen hundred.",
+                "translation": "每月12美元，但如果有工资直接入账，或者账户最低余额保持1500美元，就免月费。",
+                "highlight_words": ["waived", "direct deposit", "minimum balance"]
+            },
+            {
+                "speaker": "You",
+                "text": "Okay. I'll set up direct deposit with my company.",
+                "translation": "好的，我会让公司设置工资直接入账。",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Banker",
+                "text": "Perfect. How much would you like to deposit today to open the account?",
+                "translation": "好的。今天开户要存多少钱？",
+                "highlight_words": ["deposit"]
+            },
+            {
+                "speaker": "You",
+                "text": "Five hundred dollars in cash.",
+                "translation": "500美元现金。",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Banker",
+                "text": "Got it. Your debit card will arrive in the mail in seven to ten business days. Please choose a four-digit PIN on the keypad.",
+                "translation": "好的。您的借记卡会在7到10个工作日内寄到。请在键盘上设置一个四位数密码。",
+                "highlight_words": ["debit card", "business days", "PIN"]
+            },
+            {
+                "speaker": "You",
+                "text": "Can I use my card with Apple Pay and Zelle?",
+                "translation": "我的卡能用 Apple Pay 和 Zelle 吗？",
+                "highlight_words": ["Zelle"]
+            },
+            {
+                "speaker": "Banker",
+                "text": "Yes. Just download our app and log in. You can set up Zelle in the app.",
+                "translation": "可以。下载我们的 App 登录就行，Zelle 可以在 App 里设置。",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Banker",
+                "text": "Is there anything else I can help you with today?",
+                "translation": "今天还有别的需要帮忙的吗？",
+                "highlight_words": []
+            },
+            {
+                "speaker": "You",
+                "text": "No, that's all. Thank you so much!",
+                "translation": "没有了，非常感谢！",
+                "highlight_words": []
+            }
+        ]
+    },
+
+    "bank_open_questions": {
+        "title": "开户时被问的背景问题",
+        "title_en": "Account Opening Questions",
+        "category": "银行",
+        "difficulty": "中级",
+        "lines": [
+            {
+                "speaker": "Banker",
+                "text": "Okay, I just need to ask you a few questions. These are standard questions we ask everyone.",
+                "translation": "好的，我需要问您几个问题。这些是我们问每个人的标准问题。",
+                "highlight_words": ["standard questions"]
+            },
+            {
+                "speaker": "You",
+                "text": "Sure, no problem. Could you speak a little slowly, please?",
+                "translation": "好的，没问题。能说慢一点吗？",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Banker",
+                "text": "Of course. Are you a U.S. citizen?",
+                "translation": "当然。您是美国公民吗？",
+                "highlight_words": ["citizen"]
+            },
+            {
+                "speaker": "You",
+                "text": "No, I'm not. I'm here on a work visa.",
+                "translation": "不是，我持工作签证。",
+                "highlight_words": ["work visa"]
+            },
+            {
+                "speaker": "Banker",
+                "text": "Okay. What's your current address, and how long have you lived there?",
+                "translation": "好的。您现在的地址是？在那里住了多久？",
+                "highlight_words": ["current address"]
+            },
+            {
+                "speaker": "You",
+                "text": "It's 125 Oak Street, Apartment 3B. I moved in about two months ago.",
+                "translation": "Oak 街125号，3B 公寓。我大概两个月前搬进去的。",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Banker",
+                "text": "And what's your occupation?",
+                "translation": "您的职业是什么？",
+                "highlight_words": ["occupation"]
+            },
+            {
+                "speaker": "You",
+                "text": "I'm an electrical engineer.",
+                "translation": "我是电气工程师。",
+                "highlight_words": ["electrical engineer"]
+            },
+            {
+                "speaker": "Banker",
+                "text": "Who's your employer?",
+                "translation": "您在哪家公司工作？",
+                "highlight_words": ["employer"]
+            },
+            {
+                "speaker": "You",
+                "text": "I work for ABC Company.",
+                "translation": "我在 ABC 公司工作。",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Banker",
+                "text": "What will you mainly use this account for?",
+                "translation": "这个账户主要用来做什么？",
+                "highlight_words": []
+            },
+            {
+                "speaker": "You",
+                "text": "Getting my paycheck and paying bills.",
+                "translation": "收工资和付账单。",
+                "highlight_words": ["paycheck", "bills"]
+            },
+            {
+                "speaker": "Banker",
+                "text": "And where will the money in this account come from?",
+                "translation": "账户里的钱主要从哪来？",
+                "highlight_words": []
+            },
+            {
+                "speaker": "You",
+                "text": "Mostly from my salary.",
+                "translation": "主要是我的工资。",
+                "highlight_words": ["salary"]
+            },
+            {
+                "speaker": "Banker",
+                "text": "Roughly how much do you expect to deposit each month?",
+                "translation": "您预计每月大概存入多少？",
+                "highlight_words": ["roughly"]
+            },
+            {
+                "speaker": "You",
+                "text": "About five thousand dollars.",
+                "translation": "大约五千美元。",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Banker",
+                "text": "Do you expect to send or receive any international wire transfers?",
+                "translation": "您会有国际汇款进出吗？",
+                "highlight_words": ["international wire transfers"]
+            },
+            {
+                "speaker": "You",
+                "text": "Yes, sometimes. I might send money to my family in China.",
+                "translation": "会，偶尔。我可能会汇钱给国内的家人。",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Banker",
+                "text": "Got it. Last question: would you like overdraft protection?",
+                "translation": "好的。最后一个问题：要开透支保护吗？",
+                "highlight_words": ["overdraft protection"]
+            },
+            {
+                "speaker": "You",
+                "text": "What does that mean exactly?",
+                "translation": "那具体是什么意思？",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Banker",
+                "text": "If you don't have enough money, we'll still approve the purchase, but there's a thirty-five-dollar fee.",
+                "translation": "如果您余额不够，我们仍然会让这笔消费通过，但会收35美元手续费。",
+                "highlight_words": ["approve", "fee"]
+            },
+            {
+                "speaker": "You",
+                "text": "I see. No, thank you. Please decline it.",
+                "translation": "明白了。不用了，谢谢，请帮我拒绝。",
+                "highlight_words": ["decline"]
+            },
+            {
+                "speaker": "Banker",
+                "text": "No problem. Okay, you're all set. Let's get your debit card ready.",
+                "translation": "没问题。好了，都办好了。我们来准备您的借记卡。",
+                "highlight_words": ["all set"]
+            }
+        ]
+    },
+
+    "bank_card_problem": {
+        "title": "打电话处理银行卡问题",
+        "title_en": "Calling the Bank About a Card Problem",
+        "category": "银行",
+        "difficulty": "中级",
+        "lines": [
+            {
+                "speaker": "Phone",
+                "text": "Thank you for calling. Please say or enter your account number.",
+                "translation": "感谢致电。请说出或输入您的账号。",
+                "highlight_words": ["say or enter"]
+            },
+            {
+                "speaker": "You",
+                "text": "Representative.",
+                "translation": "人工客服。（直接说这个词可以转人工）",
+                "highlight_words": ["representative"]
+            },
+            {
+                "speaker": "Phone",
+                "text": "Okay, I'll connect you to a representative. This call may be recorded for quality assurance.",
+                "translation": "好的，正在为您转接人工。本通话可能会被录音以保证服务质量。",
+                "highlight_words": ["quality assurance"]
+            },
+            {
+                "speaker": "Agent",
+                "text": "Thank you for holding. My name is Maria. Who am I speaking with?",
+                "translation": "感谢您的等待，我是 Maria。请问您是哪位？",
+                "highlight_words": ["holding"]
+            },
+            {
+                "speaker": "You",
+                "text": "Hi, this is Li Wang. I think there's a problem with my debit card.",
+                "translation": "你好，我是王力。我的借记卡好像有问题。",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Agent",
+                "text": "I can help with that. First, can you verify your date of birth and the last four digits of your Social?",
+                "translation": "我可以帮您处理。首先，请核实一下您的出生日期和社安号后四位。",
+                "highlight_words": ["verify", "last four digits"]
+            },
+            {
+                "speaker": "You",
+                "text": "Sure. My date of birth is March fifth, nineteen eighty-five. The last four are two-seven-one-nine.",
+                "translation": "好的。我的生日是1985年3月5日，后四位是2719。",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Agent",
+                "text": "Thank you. What seems to be the problem?",
+                "translation": "谢谢。出了什么问题？",
+                "highlight_words": []
+            },
+            {
+                "speaker": "You",
+                "text": "My card was declined at the store, and I see a charge I don't recognize.",
+                "translation": "我的卡在商店被拒了，而且我看到一笔我不认识的消费。",
+                "highlight_words": ["declined", "charge", "recognize"]
+            },
+            {
+                "speaker": "Agent",
+                "text": "I see. There was a charge for two hundred forty dollars yesterday at an online store. Did you authorize this transaction?",
+                "translation": "明白了。昨天在一家网店有一笔240美元的消费。这笔交易是您本人授权的吗？",
+                "highlight_words": ["authorize", "transaction"]
+            },
+            {
+                "speaker": "You",
+                "text": "No, I didn't make that purchase.",
+                "translation": "不是，我没买过这个。",
+                "highlight_words": ["purchase"]
+            },
+            {
+                "speaker": "Agent",
+                "text": "Okay. I've locked your card for your protection and filed a fraud claim. You'll get a temporary credit while we investigate.",
+                "translation": "好的。为了保护您，我已经冻结了您的卡，并提交了盗刷申报。调查期间会先给您临时退回这笔钱。",
+                "highlight_words": ["locked", "fraud claim", "temporary credit", "investigate"]
+            },
+            {
+                "speaker": "You",
+                "text": "Thank you. How do I get a new card?",
+                "translation": "谢谢。我怎么拿到新卡？",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Agent",
+                "text": "We'll mail you a new card with a new number. It should arrive in five to seven business days. Can you confirm your mailing address?",
+                "translation": "我们会给您寄一张新卡号的新卡，大约5到7个工作日到。能确认一下您的邮寄地址吗？",
+                "highlight_words": ["mailing address"]
+            },
+            {
+                "speaker": "You",
+                "text": "It's 125 Oak Street, Apartment 3B.",
+                "translation": "Oak 街125号，3B 公寓。",
+                "highlight_words": []
+            },
+            {
+                "speaker": "Agent",
+                "text": "Got it. Is there anything else I can help you with?",
+                "translation": "好的。还有别的需要帮忙的吗？",
+                "highlight_words": []
+            },
+            {
+                "speaker": "You",
+                "text": "No, that's it. Thanks for your help.",
+                "translation": "没有了，谢谢你的帮助。",
+                "highlight_words": []
+            }
+        ]
     }
 }
 

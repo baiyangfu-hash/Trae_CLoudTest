@@ -41,6 +41,8 @@
     stars: [], // 收藏的句子 id（优先进入练习）
     log: {}, // 日期 -> 当天练习次数
     daily: { date: "", news: [] }, // 当天已引入的新句
+    notes: [], // 句子本：{id, zh, en, kind: "s"|"h", created}
+    lastExport: [], // 上次“复制给 Claude”时的句子 id 顺序，导入时按编号对应
     settings: { newPerDay: 5, voice: "", rate: 0.95, hideZh: false },
   };
 
@@ -100,6 +102,24 @@
       });
     });
   });
+
+  // 句子本：补好英文的条目当作普通句子参与练习和搜索
+  const NOTES_SCENE = { id: "mine", name: "句子本", icon: "📒", sections: [] };
+  SCENE_MAP.mine = NOTES_SCENE;
+
+  function rebuildNoteItems() {
+    Object.keys(ITEMS).forEach((id) => {
+      if (ITEMS[id].scene === "mine") delete ITEMS[id];
+    });
+    SCENE_ITEMS.mine = state.notes
+      .filter((n) => n.en)
+      .map((n) => {
+        const item = { id: n.id, kind: n.kind, en: n.en, zh: n.zh, sounds: "", reply: null, scene: "mine", section: n.kind === "h" ? "我听到的" : "我想说的" };
+        ITEMS[n.id] = item;
+        return item;
+      });
+  }
+  rebuildNoteItems();
 
   // ============================================================
   // FSRS-4.5 间隔重复（标准公式）
@@ -245,10 +265,10 @@
   function newCandidates(filterScene) {
     const unseen = (id) => !state.cards[id];
     const stars = state.stars.filter((id) => ITEMS[id] && unseen(id) && (!filterScene || ITEMS[id].scene === filterScene));
-    const pools = (filterScene ? [filterScene] : SCENES.map((s) => s.id)).map((sid) =>
-      SCENE_ITEMS[sid].filter((it) => unseen(it.id) && !stars.includes(it.id)).map((it) => it.id)
-    );
-    const out = [...stars];
+    const sceneIds = filterScene ? [filterScene] : SCENES.map((s) => s.id);
+    const mine = filterScene ? [] : SCENE_ITEMS.mine.filter((it) => unseen(it.id) && !stars.includes(it.id)).map((it) => it.id);
+    const pools = sceneIds.map((sid) => SCENE_ITEMS[sid].filter((it) => unseen(it.id) && !stars.includes(it.id)).map((it) => it.id));
+    const out = [...stars, ...mine];
     let added = true;
     while (added) {
       added = false;
@@ -259,7 +279,8 @@
         }
       });
     }
-    return out;
+    // 同一句话可能出现在多个场景里（如 “Can I see your ID?”），只练一次
+    return [...new Set(out)];
   }
 
   function newLeftToday() {
@@ -270,7 +291,7 @@
   function buildSession(sceneId) {
     resetDailyIfNeeded();
     const due = dueIds(sceneId).slice(0, 30);
-    const newLimit = sceneId ? 8 : newLeftToday();
+    const newLimit = sceneId === "mine" ? 15 : sceneId ? 8 : newLeftToday();
     const news = newCandidates(sceneId).slice(0, newLimit);
     return [...due, ...news];
   }
@@ -494,7 +515,7 @@
   function viewPractice(sceneId) {
     if (!session || session.scene !== (sceneId || "")) startSession(sceneId);
     const sc = sceneId ? SCENE_MAP[sceneId] : null;
-    const backHref = sc ? `#/scene/${sc.id}` : "#/";
+    const backHref = !sc ? "#/" : sc.id === "mine" ? "#/notes" : `#/scene/${sc.id}`;
     const top = `<div class="topbar"><a class="back" href="${backHref}">‹ ${sc ? "返回" : "首页"}</a><span class="title">${sc ? sc.icon + " " + esc(sc.name) : "今日练习"}</span><span class="muted">${session.queue.length ? session.done + "/" + (session.done + session.queue.length) : ""}</span></div>`;
 
     if (!session.queue.length) {
@@ -608,6 +629,215 @@
   }
 
   // ============================================================
+  // 页面：句子本
+  // ============================================================
+  let noteKind = "s";
+
+  function noteId() {
+    return "u" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+  }
+
+  function addNote(zh, en, kind) {
+    state.notes.unshift({ id: noteId(), zh: zh.trim(), en: (en || "").trim(), kind: kind || "s", created: Date.now() });
+  }
+
+  function deleteNote(id) {
+    state.notes = state.notes.filter((n) => n.id !== id);
+    delete state.cards[id];
+    state.stars = state.stars.filter((x) => x !== id);
+  }
+
+  // 给 Claude 的批量请求：只包含还没有英文的句子
+  function exportPrompt() {
+    const pending = state.notes.filter((n) => !n.en);
+    state.lastExport = pending.map((n) => n.id);
+    save();
+    const lines = pending.map((n, i) => `${i + 1}. ${n.kind === "h" ? "【我听到】" : "【我想说】"}${n.zh}`);
+    return (
+      "我在美国生活，下面是我遇到但不会用英语表达的话。请写成自然、口语化的美式英语，简短好记。" +
+      "“我听到”的是别人对我说的话，请写出对方最可能的原话。\n" +
+      "请严格按这个格式回复，每行一句：编号. 中文 | English\n\n" +
+      lines.join("\n")
+    );
+  }
+
+  // 解析 “编号. 中文 | English” 或 “中文 | English”
+  // 先按中文原文对应，剩下的再按编号对应（Claude 偶尔会改动中文），同一句不会被填两次
+  function importLines(text) {
+    const rows = [];
+    text.split(/\r?\n/).forEach((line) => {
+      const m = line.match(/^\s*(?:(\d+)\s*[.、)）]\s*)?(?:【(?:我听到|我想说)】)?(.+?)\s*[|｜]\s*(.+?)\s*$/);
+      if (!m) return;
+      const [, num, zh, en] = m;
+      if (!/[a-z]/i.test(en) || en.trim() === "English") return; // 跳过格式说明那一行
+      rows.push({ num: num ? Number(num) : 0, zh: zh.trim(), en: en.trim(), target: null });
+    });
+    const used = new Set();
+    rows.forEach((r) => {
+      const n = state.notes.find((x) => x.zh === r.zh && !used.has(x.id));
+      if (n) {
+        r.target = n;
+        used.add(n.id);
+      }
+    });
+    rows.forEach((r) => {
+      if (r.target || !r.num) return;
+      const n = state.notes.find((x) => x.id === state.lastExport[r.num - 1]);
+      if (n && !used.has(n.id)) {
+        r.target = n;
+        used.add(n.id);
+      }
+    });
+    let filled = 0;
+    let added = 0;
+    rows.forEach((r) => {
+      if (r.target) {
+        r.target.en = r.en;
+        filled++;
+      } else {
+        addNote(r.zh, r.en, "s");
+        added++;
+      }
+    });
+    return { filled, added };
+  }
+
+  function viewNotes() {
+    const pending = state.notes.filter((n) => !n.en);
+    const done = state.notes.filter((n) => n.en);
+    const kindBtn = (k, label) => `<button class="seg ${noteKind === k ? "on" : ""}" data-kind="${k}">${label}</button>`;
+    const pendingHtml = pending
+      .map(
+        (n) => `<div class="card note" data-note="${n.id}">
+          <div class="item-top"><span class="tag ${n.kind === "h" ? "hear" : "say"}">${n.kind === "h" ? "👂 我听到" : "🗣 我想说"}</span>
+            <button class="link danger" data-del="${n.id}">删除</button></div>
+          <div class="zh-main">${esc(n.zh)}</div>
+          <div class="fill-row">
+            <input class="fill-en" placeholder="填英文" autocapitalize="sentences" />
+            <button class="btn small" data-fill="${n.id}">保存</button>
+          </div>
+          <a class="link" href="https://translate.google.com/?sl=zh-CN&tl=en&op=translate&text=${encodeURIComponent(n.zh)}" target="_blank" rel="noopener">🌐 谷歌翻译查一下</a>
+        </div>`
+      )
+      .join("");
+    const doneHtml = done
+      .map(
+        (n) => `${itemCard(ITEMS[n.id])}<div class="note-actions"><button class="link" data-edit="${n.id}">改英文</button><button class="link danger" data-del="${n.id}">删除</button></div>`
+      )
+      .join("");
+    const dueMine = dueIds("mine").length + Math.min(8, newCandidates("mine").length);
+    return `
+      <div class="topbar"><span></span><span class="title">📒 句子本</span><span></span></div>
+      <div class="card form">
+        <div class="segs">${kindBtn("s", "🗣 我想说")}${kindBtn("h", "👂 我听到")}</div>
+        <textarea id="note-zh" rows="2" placeholder="${noteKind === "h" ? "对方说了什么？用中文描述，如：收银员问我要不要办什么卡" : "想说但不会说的话，如：我想把这个退了换大一号"}"></textarea>
+        <input id="note-en" placeholder="英文（会就填，不会留空）" autocapitalize="sentences" />
+        <button class="btn wide" id="note-add">记下来</button>
+      </div>
+
+      ${done.length ? `<a class="cta small" href="#/practice/mine"><span>练习句子本</span><span class="cta-num">${dueMine} 句 ›</span></a>` : ""}
+
+      <h3 class="sec-title">待补英文（${pending.length}）</h3>
+      ${
+        pending.length
+          ? `<button class="btn ghost wide" id="note-export">📋 复制给 Claude 补英文</button>
+             <p class="muted small">复制后发给 Claude，把回复整段复制回来，粘到下面“导入”框里。</p>${pendingHtml}`
+          : `<div class="empty">没有待补的句子。在外面卡壳了就记下来。</div>`
+      }
+
+      <h3 class="sec-title">导入 Claude 的回复</h3>
+      <div class="card form">
+        <textarea id="note-import" rows="4" placeholder="粘贴格式：1. 中文 | English（每行一句）"></textarea>
+        <button class="btn ghost wide" id="note-import-btn">导入</button>
+      </div>
+
+      <h3 class="sec-title">已加入练习（${done.length}）</h3>
+      ${doneHtml || `<div class="empty">补好英文的句子会出现在这里，并优先进入每日练习。</div>`}`;
+  }
+
+  function bindNotes() {
+    document.querySelectorAll("[data-kind]").forEach((b) =>
+      b.addEventListener("click", () => {
+        noteKind = b.dataset.kind;
+        const zh = $("#note-zh").value;
+        const en = $("#note-en").value;
+        render();
+        $("#note-zh").value = zh;
+        $("#note-en").value = en;
+      })
+    );
+    $("#note-add").addEventListener("click", () => {
+      const zh = $("#note-zh").value.trim();
+      const en = $("#note-en").value.trim();
+      if (!zh) {
+        toast("先写中文");
+        return;
+      }
+      addNote(zh, en, noteKind);
+      save();
+      rebuildNoteItems();
+      toast(en ? "已加入练习" : "已记下，记得补英文");
+      render();
+    });
+    document.querySelectorAll("[data-fill]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const n = state.notes.find((x) => x.id === b.dataset.fill);
+        const en = b.closest(".note").querySelector(".fill-en").value.trim();
+        if (!n || !en) return;
+        n.en = en;
+        save();
+        rebuildNoteItems();
+        toast("已加入练习");
+        render();
+      })
+    );
+    document.querySelectorAll("[data-edit]").forEach((b) =>
+      b.addEventListener("click", () => {
+        const n = state.notes.find((x) => x.id === b.dataset.edit);
+        if (!n) return;
+        const en = prompt(n.zh, n.en);
+        if (en == null) return;
+        n.en = en.trim();
+        save();
+        rebuildNoteItems();
+        render();
+      })
+    );
+    document.querySelectorAll("[data-del]").forEach((b) =>
+      b.addEventListener("click", () => {
+        if (!confirm("删除这一句？")) return;
+        deleteNote(b.dataset.del);
+        save();
+        rebuildNoteItems();
+        render();
+      })
+    );
+    const exp = $("#note-export");
+    if (exp) exp.addEventListener("click", async () => {
+      const text = exportPrompt();
+      try {
+        await navigator.clipboard.writeText(text);
+        toast("已复制，发给 Claude 吧");
+      } catch (e) {
+        $("#note-import").value = text;
+        $("#note-import").select();
+        toast("请手动复制下面框里的内容");
+      }
+    });
+    $("#note-import-btn").addEventListener("click", () => {
+      const { filled, added } = importLines($("#note-import").value);
+      if (!filled && !added) {
+        toast("没识别到，格式：1. 中文 | English");
+        return;
+      }
+      save();
+      rebuildNoteItems();
+      toast(`补好 ${filled} 句${added ? `，新增 ${added} 句` : ""}`);
+      render();
+    });
+  }
+
+  // ============================================================
   // 页面：我的
   // ============================================================
   function viewMe() {
@@ -694,6 +924,7 @@
         if (!confirm("用备份覆盖当前学习记录？")) return;
         state = { ...DEFAULT_STATE, ...data, settings: { ...DEFAULT_STATE.settings, ...(data.settings || {}) } };
         save();
+        rebuildNoteItems();
         toast("已恢复");
         render();
       } catch (e) {
@@ -729,6 +960,11 @@
         html = viewPractice(parts[1]);
         bind = () => bindPractice(parts[1]);
         tab = "practice";
+        break;
+      case "notes":
+        html = viewNotes();
+        bind = bindNotes;
+        tab = "notes";
         break;
       case "me":
         html = viewMe();
